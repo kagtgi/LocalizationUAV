@@ -1,0 +1,48 @@
+﻿# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+uav_env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Model artifacts / checkpoints
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+logs/
+
+# Generated outputs from this project
+ekeland_*.csv
+matching_result.png
+output/
+
+# Runtime caches
+.pytest_cache/
+.mypy_cache/
+
+# Optional: local conda env folder if created inside repo
+.conda/
