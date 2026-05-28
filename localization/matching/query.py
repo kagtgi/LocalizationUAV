@@ -5,19 +5,38 @@ Aggregate votes per parent ``patch_id``; the plurality winner determines the
 predicted satellite patch, whose pre-computed mean triangle centroid (in
 parent-image pixel coordinates) is returned as the predicted position.
 
-The voting and centroid lookup operate on int patch codes, so no full
-N-length patch-id string array is materialized on a query path.
+``query_uav`` returns only the rank-1 patch (the paper's headline output).
+``query_top_n_patches`` returns the top N patches ranked by plurality vote,
+which is useful for visual analysis ("the top 100 most plausible patches").
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 import numpy as np
 
 from ..database.kdtree import SatelliteDatabase
+
+
+@dataclass
+class PatchPrediction:
+    """One ranked candidate patch returned by :func:`query_top_n_patches`."""
+
+    rank: int            # 1 = plurality winner
+    patch_id: str
+    pixel_xy: Tuple[float, float]
+    vote_count: int
+
+    def to_dict(self) -> dict:
+        return {
+            "rank": int(self.rank),
+            "patch_id": str(self.patch_id),
+            "pixel_xy": (float(self.pixel_xy[0]), float(self.pixel_xy[1])),
+            "vote_count": int(self.vote_count),
+        }
 
 
 @dataclass
@@ -30,6 +49,7 @@ class QueryResult:
     nearest_distances: np.ndarray
     nearest_indices: np.ndarray
     k: int
+    top_n: List[PatchPrediction] = field(default_factory=list)
 
     @property
     def margin(self) -> int:
@@ -44,6 +64,7 @@ class QueryResult:
             "margin": self.margin,
             "all_votes": dict(self.all_votes),
             "k": int(self.k),
+            "top_n": [p.to_dict() for p in self.top_n],
         }
 
 
@@ -51,11 +72,7 @@ def plurality_vote(
     indices: np.ndarray,
     patch_ids: np.ndarray,
 ) -> Tuple[str, int, int, Counter]:
-    """Count votes per patch and return ``(winner, winner_votes, runner_up, counter)``.
-
-    Backward-compatible helper for callers who hold a per-descriptor string
-    array. Internal queries prefer :func:`_plurality_vote_codes` (faster).
-    """
+    """String-array helper (kept for tests and external callers)."""
     flat_patches = patch_ids[np.asarray(indices).flatten()]
     counter: Counter = Counter(flat_patches.tolist())
     if not counter:
@@ -70,11 +87,10 @@ def _plurality_vote_codes(
     indices: np.ndarray,
     patch_id_codes: np.ndarray,
 ) -> Tuple[int, int, int, np.ndarray]:
-    """Vote with integer codes; returns ``(winner_code, winner_votes, runner_up, code_counts)``.
+    """Vote with integer codes.
 
-    ``code_counts`` is a 1-D ``int32`` array of length P (the number of unique
-    patches), where ``code_counts[c]`` is the number of votes for patch code
-    ``c``.
+    Returns ``(winner_code, winner_votes, runner_up, counts)`` where
+    ``counts`` is a length-P int32 array.
     """
     flat_codes = patch_id_codes[np.asarray(indices).flatten()]
     if flat_codes.size == 0:
@@ -87,21 +103,53 @@ def _plurality_vote_codes(
         runner_up = int(np.partition(counts, -2)[-2])
     else:
         runner_up = 0
-    # Guard: runner_up should not exceed winner; equality is allowed (tie).
     if runner_up > winner_votes:
         runner_up = winner_votes
     return winner_code, winner_votes, runner_up, counts
+
+
+def _top_n_from_counts(
+    counts: np.ndarray,
+    db: SatelliteDatabase,
+    n: int,
+) -> List[PatchPrediction]:
+    """Pick the top ``n`` patch codes by vote count and build PatchPrediction list."""
+    if counts.size == 0 or n <= 0:
+        return []
+    voted_mask = counts > 0
+    voted_codes = np.where(voted_mask)[0]
+    if voted_codes.size == 0:
+        return []
+    voted_counts = counts[voted_codes]
+    # Sort by descending vote count.
+    order = np.argsort(-voted_counts, kind="stable")
+    top_codes = voted_codes[order][: int(n)]
+    top_counts = voted_counts[order][: int(n)]
+    out: List[PatchPrediction] = []
+    for rank, (code, votes) in enumerate(zip(top_codes, top_counts), start=1):
+        centroid = db.patch_centroids[code]
+        out.append(
+            PatchPrediction(
+                rank=rank,
+                patch_id=str(db.patch_id_strings[code]),
+                pixel_xy=(float(centroid[0]), float(centroid[1])),
+                vote_count=int(votes),
+            )
+        )
+    return out
 
 
 def query_uav(
     uav_descriptors: np.ndarray,
     db: SatelliteDatabase,
     k: int = 5,
+    top_n: int = 100,
 ) -> Optional[QueryResult]:
-    """Retrieve K-NN, vote, return the predicted patch centroid pixel.
+    """Retrieve K-NN, vote, return the rank-1 patch centroid plus the top-N list.
 
-    Returns ``None`` if either ``uav_descriptors`` is empty or the database
-    is empty.
+    ``top_n`` controls how many ranked patches are returned on the result's
+    ``top_n`` field (does NOT change the plurality winner). Set ``top_n=0``
+    to skip building this list.
     """
     uav_descriptors = np.ascontiguousarray(np.asarray(uav_descriptors, dtype=np.float32))
     if uav_descriptors.shape[0] == 0 or db.size == 0:
@@ -112,16 +160,16 @@ def query_uav(
     if winner_code < 0:
         return None
 
-    # O(1) centroid lookup via pre-computed per-patch mean.
     centroid_xy = db.patch_centroids[winner_code]
     winner_id = str(db.patch_id_strings[winner_code])
 
-    # Build a string-keyed Counter only over patches that actually received votes.
     voted_mask = counts > 0
     voted_codes = np.where(voted_mask)[0]
     string_counter: Counter = Counter()
     for c in voted_codes:
         string_counter[str(db.patch_id_strings[c])] = int(counts[c])
+
+    top_n_list = _top_n_from_counts(counts, db, n=int(top_n)) if top_n > 0 else []
 
     return QueryResult(
         patch_id=winner_id,
@@ -132,4 +180,20 @@ def query_uav(
         nearest_distances=distances,
         nearest_indices=indices,
         k=int(k),
+        top_n=top_n_list,
     )
+
+
+def query_top_n_patches(
+    uav_descriptors: np.ndarray,
+    db: SatelliteDatabase,
+    n: int = 100,
+    k: int = 5,
+) -> List[PatchPrediction]:
+    """Return the top-``n`` patches by plurality vote, in rank order (1 = winner).
+
+    Convenience wrapper around :func:`query_uav` for callers that only need
+    the ranked list.
+    """
+    result = query_uav(uav_descriptors, db, k=int(k), top_n=int(n))
+    return result.top_n if result is not None else []

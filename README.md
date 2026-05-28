@@ -65,7 +65,8 @@ LocalizationUAV/
     config.py, utils.py
   notebooks/
     01_build_satellite_database.ipynb   from git clone -> KDTree .npz
-    02_query_uav_localization.ipynb     load DB -> query -> red-X figure
+    02_query_uav_localization.ipynb     load DB -> query -> top-100 figure
+    03_full_pipeline.ipynb              clone -> DB -> 5 random samples
   scripts/                     train_maskrcnn.py, test_maskrcnn.py
   legacy/                      archived non-paper code (see legacy/README.md)
   paper_draft/main.tex         the paper
@@ -87,7 +88,8 @@ pip install -r requirements.txt
 # via `gdown` if the file is missing.
 # Place UAV-VisLoc/ data per TUTORIAL.md §3 (or run the Kaggle cell in nb1).
 jupyter notebook notebooks/01_build_satellite_database.ipynb   # build DB
-jupyter notebook notebooks/02_query_uav_localization.ipynb     # localize 01_0022.JPG
+jupyter notebook notebooks/02_query_uav_localization.ipynb     # localize 01_0022.JPG (top-100 figure)
+jupyter notebook notebooks/03_full_pipeline.ipynb              # clone -> DB -> 5 random samples
 ```
 
 > **Note on `best_model.pth`**: the trained Mask R-CNN checkpoint is too

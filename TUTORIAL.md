@@ -149,6 +149,13 @@ heading. What each does:
 
 ---
 
+### Want everything in one notebook? Use `notebooks/03_full_pipeline.ipynb`
+
+`03_full_pipeline.ipynb` combines DB build + 5 random UAV queries in a
+single end-to-end run (clone → install → Kaggle data → gdown checkpoint →
+build DB → pick 5 random images → render the top-100 candidate map for
+each). It is the fastest way to see the whole pipeline working on flight 01.
+
 ## 5. Query a UAV image — `notebooks/02_query_uav_localization.ipynb`
 
 Now the online side. Default demo: `UAV-VisLoc/01/drone/01_0022.JPG`.
@@ -163,7 +170,7 @@ Now the online side. Default demo: `UAV-VisLoc/01/drone/01_0022.JPG`.
 | 6. Steps 2-4 — extract UAV descriptors | [`extract_patch_descriptors`](localization/database/builder.py) | Same `segment_batch` (batch=1) → polygons → CDT → MFCA → 5-D descriptors |
 | 7. Step 5b — query | [`query_uav`](localization/matching/query.py) | K=5 NN per UAV triangle under ell_1; plurality vote on `patch_id`; predicted pixel = pre-computed centroid of the winning patch |
 | 8. Pixel → lat/lon, GT comparison | [`pixel_to_latlon`](localization/io/bounds.py), [`pixel_offset_to_meters`](localization/io/bounds.py) | Loads `satellite_coordinates_range.csv` and `01.csv` to compute ground-truth offset in meters |
-| 9. Visualize | [`render_match_figure`](localization/matching/visualize.py) | 2-panel figure: full `satellite01.tif` with a red ✕ at the predicted position (and a magenta ★ for GT when bounds are available) + the UAV view |
+| 9. Visualize top-100 | [`render_top_n_result`](localization/matching/visualize.py) | 3-panel figure: full `satellite01.tif` with **all 100 ranked candidate patches** drawn as numbered, color-graded markers (rank 1 = bright red, rank 100 = cool purple); zoom around rank-1; UAV view. GT marker (magenta ★) and yellow error connector overlaid when bounds are available |
 
 ### What to expect
 
