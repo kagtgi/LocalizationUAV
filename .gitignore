@@ -39,6 +39,31 @@ logs/
 ekeland_*.csv
 matching_result.png
 output/
+outputs/
+
+# UAV-VisLoc dataset (download separately; see notebooks/01_build_satellite_database.ipynb)
+UAV-VisLoc/01/**
+UAV-VisLoc/02/**
+UAV-VisLoc/03/**
+UAV-VisLoc/04/**
+UAV-VisLoc/05/**
+UAV-VisLoc/06/**
+UAV-VisLoc/07/**
+UAV-VisLoc/08/**
+UAV-VisLoc/09/**
+UAV-VisLoc/10/**
+UAV-VisLoc/11/**
+!UAV-VisLoc/01/.gitkeep
+!UAV-VisLoc/02/.gitkeep
+!UAV-VisLoc/03/.gitkeep
+!UAV-VisLoc/04/.gitkeep
+!UAV-VisLoc/05/.gitkeep
+!UAV-VisLoc/06/.gitkeep
+!UAV-VisLoc/07/.gitkeep
+!UAV-VisLoc/08/.gitkeep
+!UAV-VisLoc/09/.gitkeep
+!UAV-VisLoc/10/.gitkeep
+!UAV-VisLoc/11/.gitkeep
 
 # Runtime caches
 .pytest_cache/

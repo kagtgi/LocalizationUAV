@@ -1,190 +1,204 @@
-﻿# UAV_nonGPS
+# LocalizationUAV
 
-UAV_nonGPS is a notebook-first, modular pipeline for non-GPS UAV localization using geometric features extracted from UAV and satellite imagery.
+Reference implementation of **"Structure-Based UAV Visual Geo-Localization
+via Delaunay Triangulation and Ekeland Free-Cone Angle Descriptors"**
+([`paper_draft/main.tex`](paper_draft/main.tex)).
 
-## What This Project Does
+Given a single UAV nadir image, the method recovers the drone's 2-D
+geographic position by matching purely geometric building-footprint
+descriptors against a pre-indexed satellite map. **No scene-specific
+training**: the only learned component is a pre-trained Mask R-CNN.
 
-1. Segment buildings/obstacles from satellite and UAV images using a Mask R-CNN model.
-2. Convert segmented regions to polygons, triangulate them, and compute Ekeland-based geometric descriptors.
-3. Match UAV triangle features against satellite triangle features.
-4. Visualize top candidate matches on both UAV and satellite images.
+```
+Offline (per satellite site)            Online (per UAV image)
+satellite01.tif                         01_0022.JPG
+        |                                       |
+   500x500 patches                       yaw + scale + crop
+        |                                       |
+   Mask R-CNN  <-- same 500x500 backbone -->   Mask R-CNN
+        |                                       |
+  contour -> CDT                          contour -> CDT
+        |                                       |
+  MFCA descriptor                          MFCA descriptor
+  f = (a1, a2, e1, e2, e3)                f = (a1, a2, e1, e2, e3)
+        |                                       |
+  SatelliteDatabase                       query (K=5 NN, ell_1)
+  (scipy KDTree, ell_1)  <-------------- plurality vote on patch_id
+                                                 |
+                                       predicted pixel + lat/lon
+```
 
-## Project Layout
+For a **full step-by-step walkthrough**, see **[TUTORIAL.md](TUTORIAL.md)**.
+
+---
+
+## Method at a glance
+
+| Step | Paper | Module |
+|------|-------|--------|
+| 1. Preprocess UAV (yaw, scale, crop → 500×500) | §4.1 | [`localization/preprocess`](localization/preprocess/uav.py) |
+| 2. Mask R-CNN building segmentation | §4.2 | [`localization/segmentation`](localization/segmentation/inference.py) |
+| 3. Constrained Delaunay Triangulation | §4.3 | [`localization/geometry/triangulation.py`](localization/geometry/triangulation.py) |
+| 4. MFCA / Ekeland angle → 5-D descriptor | §4.4 | [`localization/geometry/ekeland.py`](localization/geometry/ekeland.py), [`descriptor.py`](localization/geometry/descriptor.py) |
+| 5a. Patch-based offline KD-Tree index (ℓ₁) | §4.5 | [`localization/database`](localization/database/) |
+| 5b. K-NN retrieval + plurality vote | §4.5 | [`localization/matching/query.py`](localization/matching/query.py) |
+
+Both UAV and satellite go through the **same** `segment_batch` function at
+the same 500×500 resolution, so segmentation quality is identical on both
+branches. The satellite map is tiled into 500-px patches at 100-px stride;
+each triangle vote on the winning patch is converted to a geographic
+position via the linear bounds in `satellite_coordinates_range.csv`.
+
+---
+
+## Repository layout
 
 ```text
-UAV_nonGPS/
-  config.py                  # Runtime/data path configs (dataclasses + legacy config)
-  model.py                   # Mask R-CNN creation and checkpoint loading
-  dataset.py                 # UAV image pose correction and dataset/dataloader utilities
-  run.ipynb                  # Main end-to-end notebook entry point
-  requirements.txt           # pip environment
-  environment.yaml           # conda environment
-
-  geometry/
-    triangulation.py         # Triangulation graph + expansion helpers
-    ekeland.py               # Ekeland angle analyzer and computation
-
-  segmentation/
-    contours.py              # Contour/polygon extraction + visualization helpers
-    pipeline.py              # Segmentation pipeline orchestration
-
-  satellite/
-    preprocess.py            # Satellite/UAV feature extraction pipelines + facades
-
-  matching/
-    features.py              # Feature extraction, distance metrics, matching, visualization
-    pipeline.py              # End-to-end localization orchestrator class
-
-  io/
-    export.py                # CSV export helpers for extracted triangle features
+LocalizationUAV/
+  localization/                main package (lazy top-level imports)
+    preprocess/uav.py            Step 1
+    segmentation/                Step 2 (model + inference + contours)
+    geometry/                    Steps 3-4 (triangulation, ekeland, descriptor)
+    database/                    Step 5a (patches, builder, kdtree)
+    matching/                    Step 5b (query, visualize)
+    io/                          bounds, dataset loader, CSV export
+    config.py, utils.py
+  notebooks/
+    01_build_satellite_database.ipynb   from git clone -> KDTree .npz
+    02_query_uav_localization.ipynb     load DB -> query -> red-X figure
+  scripts/                     train_maskrcnn.py, test_maskrcnn.py
+  legacy/                      archived non-paper code (see legacy/README.md)
+  paper_draft/main.tex         the paper
+  UAV-VisLoc/                  dataset scaffold (gitignored data)
+  outputs/                     gitignored notebook outputs
+  TUTORIAL.md, README.md
 ```
 
-## Environment Setup
+---
 
-Use either Conda (recommended) or pip.
-
-### Option 1: Conda
+## Quick start
 
 ```bash
-cd UAV_nonGPS
-conda env create -f environment.yaml
-conda activate uav_env
-```
-
-### Option 2: pip
-
-```bash
-cd UAV_nonGPS
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Linux/macOS:
-# source .venv/bin/activate
-
+git clone https://github.com/kagtgi/LocalizationUAV.git && cd LocalizationUAV
 pip install -r requirements.txt
+# Download the trained Mask R-CNN checkpoint (best_model.pth) from
+#   https://drive.google.com/file/d/1jlRfOXYU18DcOjWEwNBet1b7FHCIClcB/view
+# and place it at the repo root. The notebooks also do this automatically
+# via `gdown` if the file is missing.
+# Place UAV-VisLoc/ data per TUTORIAL.md §3 (or run the Kaggle cell in nb1).
+jupyter notebook notebooks/01_build_satellite_database.ipynb   # build DB
+jupyter notebook notebooks/02_query_uav_localization.ipynb     # localize 01_0022.JPG
 ```
 
-## Required Inputs
+> **Note on `best_model.pth`**: the trained Mask R-CNN checkpoint is too
+> large for git; it is hosted on Google Drive at the link above. The
+> notebooks include a one-line `gdown` cell that pulls it automatically.
 
-- Trained checkpoint: `../best_model.pth` (or update path in notebook).
-- Dataset root folder containing flight folders (e.g. `UAV_nonGPS_dataset/01/...`).
-- Satellite bounds file: `UAV_nonGPS_dataset/satellite_coordinates_range.csv`.
+For automated Kaggle download, environment setup, expected runtimes, and
+troubleshooting, see **[TUTORIAL.md](TUTORIAL.md)**.
 
-## How To Run
+---
 
-Primary entry point: `run.ipynb`.
+## Programmatic use
 
-1. Open `UAV_nonGPS/run.ipynb` in Jupyter.
-2. Set paths in the configuration cell:
-   - `DATA_ROOT`
-   - `FLIGHT_ID`
-   - `MODEL_PATH`
-   - input UAV/satellite image paths.
-3. Run cells in order.
+```python
+import torch
+from localization import (
+    load_model, process_uav,
+    build_satellite_descriptors, SatelliteDatabase, query_uav,
+)
+from localization.database.builder import extract_patch_descriptors
 
-Notebook flow:
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model  = load_model('best_model.pth', device=device, num_classes=2,
+                    pretrained=False).to(device).eval()
 
-1. Add repository root to `sys.path`.
-2. Import pipeline modules/classes.
-3. Load model with `load_model(...)`.
-4. Build satellite feature CSV via `process_satellite_as_drone(...)`.
-5. Build rotated UAV feature CSV via `complete_segmentation_demo_uav_with_rotation(...)`.
-6. Read UAV ground-truth metadata and satellite bounds.
-7. Run OOP matching (`FeatureExtractor` + `DistanceMetric` + `Matcher`).
-8. Visualize top matches with `MatchVisualizer.render(...)`.
+# Offline (run once per site)
+df = build_satellite_descriptors(
+    tif_path='UAV-VisLoc/01/satellite01.tif',
+    model=model, device=device,
+    patch_size=500, stride=100, batch_size=4,
+)
+db = SatelliteDatabase.from_dataframe(df, parent_tif='satellite01.tif', leaf_size=40)
+db.save('outputs/01/satellite01_kdtree.npz')
 
-## Train Mask R-CNN (PyTorch)
+# Online (per UAV image)
+_, img_500, _meta = process_uav(
+    'UAV-VisLoc/01/drone/01_0022.JPG',
+    'UAV-VisLoc/01/01.csv',
+)
+uav_desc, _ = extract_patch_descriptors(img_500, model=model, device=device)
+result = query_uav(uav_desc, db, k=5)
+print(result.patch_id, result.pixel_xy, result.vote_count, result.margin)
+```
 
-The repository now includes `train_maskrcnn.py` for end-to-end Mask R-CNN training with:
-- `GF-7 Building (3Bands)` or `GF-7 Building (4Bands)` (`Train/Val` split),
-- optional extra training patches from `Images and Shpfiles`.
+Importing `localization` does not pull in torch; lazy `__getattr__` defers
+heavy modules until first use, so a downstream consumer can `import
+localization.database` (only scipy + numpy + pandas) without paying the
+torch import cost.
 
-### 1) Train on GF-7 (3Bands)
+---
+
+## Training the Mask R-CNN
+
+The shipped `best_model.pth` was trained on the GF-7 building dataset; to
+retrain see [scripts/train_maskrcnn.py](scripts/train_maskrcnn.py):
 
 ```bash
-cd UAV_nonGPS
-python train_maskrcnn.py \
-  --data-root .. \
-  --gf7-bands 3 \
-  --epochs 20 \
-  --batch-size 2 \
+python scripts/train_maskrcnn.py \
+  --data-root .. --gf7-bands 3 \
+  --epochs 20 --batch-size 2 \
   --output-dir checkpoints/maskrcnn_gf7_3band
 ```
 
-### 2) Train on GF-7 (4Bands)
+3-band RGB and 4-band (RGB + NIR) inputs are both supported.
 
-```bash
-cd UAV_nonGPS
-python train_maskrcnn.py \
-  --data-root .. \
-  --gf7-bands 4 \
-  --epochs 20 \
-  --batch-size 2 \
-  --output-dir checkpoints/maskrcnn_gf7_4band
+---
+
+## Dataset
+
+[UAV-VisLoc](https://github.com/IntelliSensing/UAV-VisLoc)
+([Kaggle](https://www.kaggle.com/datasets/hailong1610/uav-visloc-dataset)):
+11 flights across China, 6,742 drone images, 11 satellite GeoTIFFs,
+altitudes 400-2,000 m, summer + autumn. ~17.7 GB.
+
+The expected on-disk layout (the Kaggle download produces this directly):
+
+```
+UAV-VisLoc/
+    satellite_coordinates_range.csv     mapname,LT_lat_map,LT_lon_map,RB_lat_map,RB_lon_map,region
+    01/
+        drone/01_0001.JPG ...           817 UAV images (flight 01)
+        satellite01.tif                 9774 x 26762 (Changjiang-20)
+        01.csv                          num,filename,date,lat,lon,height,Omega,Kappa,Phi1,Phi2
+    02/ ... 11/
 ```
 
-### 3) Train on GF-7 (4Bands) + Images and Shpfiles
+---
 
-```bash
-cd UAV_nonGPS
-python train_maskrcnn.py \
-  --data-root .. \
-  --gf7-bands 4 \
-  --include-images-shp \
-  --images-shp-root "../Images and Shpfiles" \
-  --extra-patch-size 512 \
-  --extra-patch-stride 384 \
-  --extra-min-fg-ratio 0.002 \
-  --extra-bg-keep-prob 0.03 \
-  --epochs 25 \
-  --batch-size 2 \
-  --output-dir checkpoints/maskrcnn_gf7_4band_plus_areas
+## What's in `legacy/`
+
+Code preserved from earlier experimental tracks but **not** part of the
+paper's pipeline:
+
+- `mutual_learning_swin.py` — Swin-T + ResNet-50 dual-Mask-R-CNN mutual
+  learning experiment
+- `brute_force_matcher.py` — original `O(M·N)` triangle-pair matcher
+- `extra_distance_metrics.py` — `complex` / `geodesic` / `circular_mean` /
+  `von_mises` variants
+
+The paper specifies KD-Tree (`scipy.spatial.KDTree`, p=1 / ℓ₁) + plurality
+voting on patch IDs, which is what `localization/database` and
+`localization/matching` implement. See [legacy/README.md](legacy/README.md).
+
+---
+
+## Citation
+
 ```
-
-### Notes
-
-- Labels are expected as binary masks (`0/255`), and are converted to connected-component instances for Mask R-CNN targets.
-- For 4-band training, `model.py` automatically adapts the first backbone conv layer to 4 input channels.
-- Key outputs:
-  - `best_model.pth`
-  - `checkpoint_epoch_XXX.pth`
-  - `history.json`
-  - `train_config.json`
-
-## Main Classes and Important Functions in `run.ipynb` Flow
-
-### Model and Data Preparation
-
-- `load_model` (`model.py`): loads Mask R-CNN checkpoint and returns eval-ready model.
-- `process_uav` (`dataset.py`): applies UAV pose normalization (yaw/roll/pitch handling, scaling/cropping) and returns rotated image used for matching visualization.
-
-### Feature Extraction Pipelines
-
-- `process_satellite_as_drone` (`satellite/preprocess.py`):
-  - segments large satellite TIFF via sliding window,
-  - extracts contours/polygons,
-  - triangulates polygons,
-  - computes Ekeland features,
-  - exports satellite CSV.
-- `complete_segmentation_demo_uav_with_rotation` (`satellite/preprocess.py`):
-  - rotates UAV image to north-up,
-  - segments rotated image,
-  - extracts polygons + triangulation + Ekeland features,
-  - exports rotated UAV CSV.
-
-### Matching and Visualization
-
-- `FeatureExtractor` (`matching/features.py`): converts each triangle row into feature vectors (interior angles + Ekeland angles, optional shape terms).
-- `DistanceMetric` (`matching/features.py`): configurable distance scoring (e.g. `l1`, `l2`, `complex`, `geodesic`, `von_mises`).
-- `Matcher` (`matching/features.py`): brute-force matching between all UAV and satellite triangle features; returns top-k results.
-- `MatchVisualizer` (`matching/features.py`): overlays matched triangles and rank markers on UAV and satellite images.
-- `load_satellite_bounds` (`matching/features.py`): loads geo bounds for mapping GT latitude/longitude to satellite pixels.
-
-### Orchestration Class
-
-- `LocalizationPipeline` (`matching/pipeline.py`): OOP end-to-end runner that chains UAV preprocessing, feature extraction, and matching. In `run.ipynb`, it is instantiated as a pipeline facade for full workflow usage.
-
-## Notes
-
-- The current implementation is notebook-first; `run.ipynb` is the canonical execution path.
-- For consistent angle geometry, UAV features should be extracted from the north-aligned (rotated) UAV image.
+@article{structurebaseduavloc,
+  title  = {Structure-Based UAV Visual Geo-Localization via Delaunay
+            Triangulation and Ekeland Free-Cone Angle Descriptors},
+  note   = {Paper draft in paper_draft/main.tex},
+}
+```
