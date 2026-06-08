@@ -36,8 +36,20 @@ class PathConfig:
 class SegmentationConfig:
     score_threshold: float = 0.5
     min_polygon_area: float = 50.0
+    # Paper §4.2 (Table, tau = 2 px): fixed Douglas-Peucker tolerance in pixels.
+    douglas_peucker_tolerance_px: float = 2.0
+    # Legacy perimeter-relative tolerance; unused by default (kept for back-compat).
     epsilon_factor: float = 0.02
     contour_method: str = "marching_squares"
+
+
+@dataclass
+class GeometryConfig:
+    """MFCA descriptor geometry (paper §4.3-4.4)."""
+
+    # Paper Algorithm 1 / Table (D_max = 4): kernel-expansion depth cap.
+    # Override for the D_max in {1, 2, 4, 8} ablation.
+    max_expansion_depth: int = 4
 
 
 @dataclass
@@ -78,5 +90,6 @@ class TrainConfig:
 class AppConfig:
     paths: PathConfig = field(default_factory=PathConfig)
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
+    geometry: GeometryConfig = field(default_factory=GeometryConfig)
     index: IndexConfig = field(default_factory=IndexConfig)
     train: TrainConfig = field(default_factory=TrainConfig)

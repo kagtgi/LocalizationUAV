@@ -24,13 +24,14 @@ from .patches import iter_patches, patch_count
 def _polygons_to_descriptors(
     polygons: List[List[List[float]]],
     offset_xy: Tuple[float, float] = (0.0, 0.0),
+    max_depth: int = 4,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Triangulate each polygon, compute 5-D descriptors + global centroids."""
     all_desc: List[np.ndarray] = []
     all_cent: List[np.ndarray] = []
     off_x, off_y = float(offset_xy[0]), float(offset_xy[1])
     for polygon in polygons:
-        desc, cent = triangle_descriptors_from_polygon(polygon)
+        desc, cent = triangle_descriptors_from_polygon(polygon, max_depth=max_depth)
         if desc.shape[0] == 0:
             continue
         all_desc.append(desc)
@@ -49,13 +50,16 @@ def extract_patch_descriptors(
     device,
     score_threshold: float = 0.5,
     min_polygon_area: float = 50.0,
-    epsilon_factor: float = 0.02,
+    tolerance_px: float = 2.0,
+    max_depth: int = 4,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Run a single image through Steps 2-4 and return ``(descriptors, centroids)``.
 
     Centroids are in input-image-local pixel coordinates; the caller adds the
     patch's top-left offset when stitching into a multi-patch DB. Used by the
-    UAV query path (Notebook 2) and as a fallback in tests.
+    UAV query path (Notebook 2) and as a fallback in tests. ``tolerance_px`` is
+    the Douglas-Peucker tolerance (paper §4.2, default 2 px) and ``max_depth``
+    is the kernel-expansion cap ``D_max`` (paper Algorithm 1, default 4).
     """
     from ..segmentation.inference import segment_image  # local import to keep torch lazy
 
@@ -65,11 +69,11 @@ def extract_patch_descriptors(
         device=device,
         score_threshold=score_threshold,
         min_area=min_polygon_area,
-        epsilon_factor=epsilon_factor,
+        tolerance_px=tolerance_px,
     )
     if not polygons:
         return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
-    return _polygons_to_descriptors(polygons)
+    return _polygons_to_descriptors(polygons, max_depth=max_depth)
 
 
 def build_satellite_descriptors(
@@ -80,7 +84,8 @@ def build_satellite_descriptors(
     stride: int = 100,
     score_threshold: float = 0.5,
     min_polygon_area: float = 50.0,
-    epsilon_factor: float = 0.02,
+    tolerance_px: float = 2.0,
+    max_depth: int = 4,
     batch_size: int = 4,
     output_csv: Optional[str] = None,
     progress: bool = True,
@@ -127,13 +132,13 @@ def build_satellite_descriptors(
             device=device,
             score_threshold=score_threshold,
             min_area=min_polygon_area,
-            epsilon_factor=epsilon_factor,
+            tolerance_px=tolerance_px,
             batch_size=len(patches),  # already a chunk
         )
         for (_binary, polygons), (pid, tx, ty) in zip(results, meta):
             if not polygons:
                 continue
-            desc, cent = _polygons_to_descriptors(polygons, offset_xy=(tx, ty))
+            desc, cent = _polygons_to_descriptors(polygons, offset_xy=(tx, ty), max_depth=max_depth)
             for d, c in zip(desc, cent):
                 records.append(
                     {

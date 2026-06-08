@@ -16,11 +16,42 @@ from typing import List, Sequence, Tuple
 
 import numpy as np
 from scipy.spatial import Delaunay
+from shapely.geometry import Point, Polygon
 
 from .ekeland import compute_expansion_ekeland_for_all_triangles
 
 
 VertexXY = Tuple[float, float]
+
+
+def _interior_simplex_mask(tri: "Delaunay", polygon_np: np.ndarray) -> np.ndarray:
+    """Boolean mask over Delaunay simplices: True iff the triangle is inside the polygon.
+
+    Implements the boundary-respecting (Constrained) Delaunay Triangulation of
+    paper §4.3 by *interior filtering*: an unconstrained convex-hull Delaunay
+    triangulation emits triangles outside a non-convex footprint; we keep only
+    those whose centroid lies inside the (repaired) polygon. For simple building
+    footprints this reproduces the interior mesh of a boundary-edge-constrained
+    Delaunay triangulation without an extra geometry dependency.
+    """
+    n = len(tri.simplices)
+    try:
+        poly = Polygon(polygon_np)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+    except Exception:
+        return np.ones(n, dtype=bool)
+    if poly.is_empty or poly.area <= 0.0:
+        return np.ones(n, dtype=bool)
+
+    centroids = polygon_np[tri.simplices].mean(axis=1)  # (T, 2)
+    mask = np.fromiter(
+        (poly.contains(Point(float(cx), float(cy))) for cx, cy in centroids),
+        dtype=bool,
+        count=n,
+    )
+    # Degenerate guard: if nothing survived, fall back to the full set.
+    return mask if mask.any() else np.ones(n, dtype=bool)
 
 
 def _dist(p1: VertexXY, p2: VertexXY) -> float:
@@ -58,13 +89,16 @@ def triangle_descriptor(
     return np.asarray([alpha1, alpha2, eke_sorted[0], eke_sorted[1], eke_sorted[2]], dtype=np.float32)
 
 
-def triangle_descriptors_from_polygon(polygon_xy: Sequence[Sequence[float]]) -> Tuple[np.ndarray, np.ndarray]:
+def triangle_descriptors_from_polygon(
+    polygon_xy: Sequence[Sequence[float]], max_depth: int = 4
+) -> Tuple[np.ndarray, np.ndarray]:
     """CDT a polygon and return ``(descriptors (T,5), centroids (T,2))``.
 
-    Vertices are the polygon's own vertices (no Steiner points). The CDT here
-    is unconstrained Delaunay over the polygon vertex set; for convex/simple
-    polygons typical of Mask R-CNN building outputs this matches the paper's
-    boundary-edge-constrained triangulation closely enough.
+    Vertices are the polygon's own vertices (no Steiner points). The triangulation
+    respects the polygon boundary via interior filtering (see
+    :func:`_interior_simplex_mask`), matching the Constrained Delaunay
+    Triangulation of paper §4.3. ``max_depth`` is the paper's kernel-expansion
+    cap ``D_max`` (Algorithm 1, default 4).
     """
     polygon_np = np.asarray(polygon_xy, dtype=np.float64)
     if polygon_np.shape[0] < 3:
@@ -75,7 +109,10 @@ def triangle_descriptors_from_polygon(polygon_xy: Sequence[Sequence[float]]) -> 
     except Exception:
         return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
 
-    expansion_results = compute_expansion_ekeland_for_all_triangles(tri)
+    interior_mask = _interior_simplex_mask(tri, polygon_np)
+    expansion_results = compute_expansion_ekeland_for_all_triangles(
+        tri, interior_mask=interior_mask, max_depth=int(max_depth)
+    )
 
     descriptors: List[np.ndarray] = []
     centroids: List[np.ndarray] = []

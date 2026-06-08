@@ -13,18 +13,32 @@ import numpy as np
 
 
 class TriangulationGraph:
-    """Dual graph + region expansion over a Delaunay triangulation."""
+    """Dual graph + region expansion over a Delaunay triangulation.
 
-    def __init__(self, triangulation):
+    An optional ``valid_mask`` (bool array over ``triangulation.simplices``)
+    restricts the dual graph to *interior* triangles only: exterior triangles
+    (those a convex-hull Delaunay triangulation places outside a non-convex
+    footprint) are never connected, so kernel expansion stays inside the
+    polygon boundary - the boundary-respecting (constrained) behaviour required
+    by paper §4.3.
+    """
+
+    def __init__(self, triangulation, valid_mask=None):
         self.triangulation = triangulation
+        self.valid_mask = valid_mask
+
+    def _is_valid(self, tri_idx: int) -> bool:
+        return self.valid_mask is None or bool(self.valid_mask[tri_idx])
 
     def build_dual_graph(self) -> Dict[int, List[int]]:
         n = len(self.triangulation.simplices)
         dual: Dict[int, List[int]] = {i: [] for i in range(n)}
         for tri_idx in range(n):
+            if not self._is_valid(tri_idx):
+                continue
             for j in range(3):
                 neighbor_idx = int(self.triangulation.neighbors[tri_idx, j])
-                if neighbor_idx != -1:
+                if neighbor_idx != -1 and self._is_valid(neighbor_idx):
                     dual[tri_idx].append(neighbor_idx)
         return dual
 
@@ -130,8 +144,8 @@ class TriangulationGraph:
 # ---------------- Functional API used by the rest of the package -----------------
 
 
-def build_dual_graph(triangulation) -> Dict[int, List[int]]:
-    return TriangulationGraph(triangulation).build_dual_graph()
+def build_dual_graph(triangulation, valid_mask=None) -> Dict[int, List[int]]:
+    return TriangulationGraph(triangulation, valid_mask=valid_mask).build_dual_graph()
 
 
 def get_triangle_vertices(triangulation, triangle_idx: int):

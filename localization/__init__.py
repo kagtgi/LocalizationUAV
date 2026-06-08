@@ -19,6 +19,7 @@ __all__ = [
     "build_satellite_descriptors",
     "query_uav",
     "query_top_n_patches",
+    "draw_gt_vs_topn_centroids",
 ]
 
 
@@ -44,4 +45,8 @@ def __getattr__(name: str) -> Any:
         from .matching import query as _q
 
         return getattr(_q, name)
+    if name == "draw_gt_vs_topn_centroids":
+        from .matching.visualize import draw_gt_vs_topn_centroids
+
+        return draw_gt_vs_topn_centroids
     raise AttributeError(f"module 'localization' has no attribute {name!r}")

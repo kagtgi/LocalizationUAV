@@ -106,12 +106,19 @@ class EkelandAnalyzer:
             }
         return results
 
-    def compute_expansion_ekeland_for_all_triangles(self, triangulation) -> List[dict]:
-        dual = build_dual_graph(triangulation)
+    def compute_expansion_ekeland_for_all_triangles(
+        self, triangulation, interior_mask=None, max_depth: int = 4
+    ) -> List[dict]:
+        # ``interior_mask`` restricts both the dual graph and the seed set to
+        # triangles inside the polygon (paper §4.3 boundary-respecting CDT).
+        # ``max_depth`` is the paper's D_max kernel-expansion cap (Algorithm 1).
+        dual = build_dual_graph(triangulation, valid_mask=interior_mask)
         results: List[dict] = []
         for seed_idx in range(len(triangulation.simplices)):
+            if interior_mask is not None and not bool(interior_mask[seed_idx]):
+                continue
             expansion = expand_from_seed_triangle(
-                triangulation, dual, seed_idx, max_iterations=100
+                triangulation, dual, seed_idx, max_iterations=int(max_depth)
             )
             ekeland_results = self.calculate_ekeland_angles_on_boundary(triangulation, expansion)
             original_simplex = triangulation.simplices[seed_idx]
@@ -139,5 +146,9 @@ def calculate_ekeland_angles_on_boundary(triangulation, expansion_result, **_kwa
     )
 
 
-def compute_expansion_ekeland_for_all_triangles(triangulation, **_kwargs):
-    return _DEFAULT_ANALYZER.compute_expansion_ekeland_for_all_triangles(triangulation=triangulation)
+def compute_expansion_ekeland_for_all_triangles(
+    triangulation, interior_mask=None, max_depth: int = 4, **_kwargs
+):
+    return _DEFAULT_ANALYZER.compute_expansion_ekeland_for_all_triangles(
+        triangulation=triangulation, interior_mask=interior_mask, max_depth=max_depth
+    )

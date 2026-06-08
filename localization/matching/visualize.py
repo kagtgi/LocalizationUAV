@@ -403,6 +403,107 @@ def render_top_n_result(
     )
 
 
+def draw_gt_vs_topn_centroids(
+    satellite_image_path: str,
+    top_n: Sequence["PatchPrediction"],
+    gt_pixel_xy: Optional[Tuple[float, float]] = None,
+    title: Optional[str] = None,
+    output_path: Optional[str] = None,
+    preview_max_dim: int = 4096,
+    dot_size: float = 14.0,
+    cmap_name: str = "gist_rainbow",
+):
+    """Single-panel "GT vs top-N matches" map in the paper's Fig. 5(a) style.
+
+    Draws the whole satellite map with:
+
+    * every top-N candidate centroid as a small, multi-coloured dot;
+    * the ground truth as a red star (if ``gt_pixel_xy`` given);
+    * a yellow ring around the candidate centroid nearest the GT
+      (a recall diagnostic: "is the right place even in the top-N?").
+
+    Centroid pixel coordinates (in the full-resolution satellite frame) are
+    scaled to the downsampled preview before plotting. Returns the matplotlib
+    Figure and saves a PNG to ``output_path`` when provided.
+    """
+    if not top_n:
+        raise ValueError("top_n must be a non-empty sequence of PatchPrediction")
+
+    with Image.open(satellite_image_path) as im:
+        sat = im.convert("RGB")
+        sat_w, sat_h = sat.size
+        scale = min(1.0, float(preview_max_dim) / float(max(sat_w, sat_h, 1)))
+        if scale < 1.0:
+            preview = sat.resize(
+                (max(1, int(round(sat_w * scale))), max(1, int(round(sat_h * scale)))),
+                Image.BILINEAR,
+            )
+        else:
+            preview = sat.copy()
+    preview_np = np.asarray(preview)
+    ph, pw = preview_np.shape[:2]
+
+    xs = np.array([float(p.pixel_xy[0]) for p in top_n], dtype=float)
+    ys = np.array([float(p.pixel_xy[1]) for p in top_n], dtype=float)
+    n = len(top_n)
+
+    # Figure sized to the preview aspect, longest side ~12 in.
+    aspect = ph / float(max(pw, 1))
+    if aspect >= 1.0:
+        fig_h, fig_w = 12.0, max(4.0, 12.0 / aspect)
+    else:
+        fig_w, fig_h = 12.0, max(4.0, 12.0 * aspect)
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.patch.set_facecolor("white")
+    ax.imshow(preview_np)
+    ax.axis("off")
+
+    # Matches: small dots, one colour per rank for visual separability.
+    colors = plt.get_cmap(cmap_name)(np.linspace(0.0, 1.0, n))
+    ax.scatter(
+        xs * scale, ys * scale, s=dot_size, c=colors, marker="o",
+        edgecolors="black", linewidths=0.3, zorder=3,
+    )
+
+    if gt_pixel_xy is not None:
+        gx, gy = float(gt_pixel_xy[0]), float(gt_pixel_xy[1])
+        # Yellow ring on the candidate nearest the GT.
+        nearest = int(np.argmin((xs - gx) ** 2 + (ys - gy) ** 2))
+        ax.scatter(
+            [xs[nearest] * scale], [ys[nearest] * scale],
+            s=max(140.0, dot_size * 12.0), facecolors="none",
+            edgecolors="yellow", linewidths=2.2, zorder=4,
+        )
+        # GT red star on top.
+        ax.scatter(
+            [gx * scale], [gy * scale], s=320.0, marker="*",
+            c="red", edgecolors="white", linewidths=1.0, zorder=5,
+        )
+
+    note = (
+        f"GT vs {n} matches centroids\n"
+        "GT: red star | matches: small dots | yellow ring: nearest GT"
+    )
+    ax.text(
+        0.012, 0.985, note, transform=ax.transAxes, va="top", ha="left",
+        fontsize=9, color="white",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.55, edgecolor="none"),
+        zorder=6,
+    )
+
+    ax.set_title(
+        title or f"Satellite map - {os.path.basename(satellite_image_path)}",
+        fontsize=12, pad=8,
+    )
+    plt.tight_layout()
+
+    if output_path:
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+        fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white")
+    return fig
+
+
 def _default_title(error_distance_m: Optional[float], prefix: str = "Localization result") -> str:
     if error_distance_m is not None:
         return f"{prefix}  (error vs GT = {error_distance_m:.1f} m)"

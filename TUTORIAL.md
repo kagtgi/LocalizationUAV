@@ -31,6 +31,14 @@ satellite01.tif (9774×26762)             01_0022.JPG (3976×2652)
 The same `segment_batch` function runs on both branches at 500×500, so
 segmentation quality is identical for UAV and satellite inputs.
 
+> **Implementation fidelity.** The descriptor uses the paper's settings: fixed
+> Douglas-Peucker tolerance `τ = 2 px`, interior-filtered (boundary-respecting)
+> Constrained Delaunay Triangulation, and kernel-expansion cap `D_max = 4`. You
+> can confirm the geometry against the paper's definitions at any time with
+> `python scripts/verify_finalization.py` (runs offline, no data needed). If you
+> built a KD-Tree database with an older version, **rebuild it** — see
+> [`log.txt`](log.txt).
+
 ---
 
 ## 0. Prerequisites
@@ -41,8 +49,8 @@ segmentation quality is identical for UAV and satellite inputs.
 - **Disk**: ~20 GB free (UAV-VisLoc is ~17.7 GB; DB outputs are tiny)
 - **Kaggle API token** (a `kaggle.json` file) if you want to use the
   automated download in the notebooks
-- The trained Mask R-CNN checkpoint **`best_model.pth`** — bundled in the
-  `building-segment` Kaggle dataset
+- The trained Mask R-CNN checkpoint **`best_model.pth`** (~170 MB) — fetched via
+  `gdown` from Google Drive (see §3)
 
 ---
 
@@ -119,12 +127,13 @@ heading. What each does:
 
 | Cell group | Module called | What happens |
 |---|---|---|
-| 1. Clone repo | `git clone` | One-time setup on Colab/Kaggle |
+| 1. Clone repo | `git clone` | One-time setup on Colab/Kaggle (skip if already cloned) |
 | 2. pip install | `pip install -r requirements.txt` | Install scipy/torch/opencv/skimage/shapely/etc. |
-| 3. Kaggle setup + download | `kaggle datasets download ...` | Pull `building-segment` (model) and `uav-visloc-dataset` |
-| 4. Paths | — | Defines `DATA_ROOT`, `FLIGHT_ID='01'`, `PATCH_SIZE=500`, `STRIDE=100`, `INFERENCE_BATCH_SIZE=4` |
+| 3. Download data | `kaggle datasets download ...` | **Idempotent**: pulls `building-segment` + `uav-visloc-dataset` only if `UAV-VisLoc/01/satellite01.tif` is missing |
+| 3b. Download checkpoint | `gdown` | Fetches `best_model.pth` from Google Drive if missing |
+| 4. Imports & config | — | Defines `DATA_ROOT`, `FLIGHT_ID='01'`, `PATCH_SIZE=500`, `STRIDE=100`, `INFERENCE_BATCH_SIZE=4`; then verifies the GeoTIFF + checkpoint are present |
 | 5. Load Mask R-CNN | [`localization.load_model`](localization/segmentation/model.py) | `ResNet-50-FPN`, 2 classes, eval mode, on GPU if available |
-| 6. Build descriptors | [`build_satellite_descriptors`](localization/database/builder.py) | Sliding window over `satellite01.tif` (94 × 263 ≈ **24,722 patches**), batched Mask R-CNN inference, CDT, MFCA → DataFrame `[patch_id, parent_tif, top_left_x, top_left_y, centroid_x, centroid_y, alpha1, alpha2, e1, e2, e3]` |
+| 6. Build descriptors | [`build_satellite_descriptors`](localization/database/builder.py) | Sliding window over `satellite01.tif` (94 × 263 ≈ **24,722 patches**), batched Mask R-CNN inference, Douglas-Peucker (τ=2px), interior-filtered CDT, MFCA (D_max=4) → DataFrame `[patch_id, parent_tif, top_left_x, top_left_y, centroid_x, centroid_y, alpha1, alpha2, e1, e2, e3]` |
 | 7. Build + save DB | [`SatelliteDatabase.from_dataframe`](localization/database/kdtree.py), `.save(...)` | `scipy.spatial.KDTree(p=1)`, leaf=40. Saves to `outputs/01/satellite01_kdtree.npz` |
 | 8. Sanity overlay | matplotlib | Random 2,000 centroids plotted on a downsampled satellite preview |
 | 9. Round-trip | `SatelliteDatabase.load` | Confirms save/load preserves all arrays |
@@ -171,6 +180,7 @@ Now the online side. Default demo: `UAV-VisLoc/01/drone/01_0022.JPG`.
 | 7. Step 5b — query | [`query_uav`](localization/matching/query.py) | K=5 NN per UAV triangle under ell_1; plurality vote on `patch_id`; predicted pixel = pre-computed centroid of the winning patch |
 | 8. Pixel → lat/lon, GT comparison | [`pixel_to_latlon`](localization/io/bounds.py), [`pixel_offset_to_meters`](localization/io/bounds.py) | Loads `satellite_coordinates_range.csv` and `01.csv` to compute ground-truth offset in meters |
 | 9. Visualize top-100 | [`render_top_n_result`](localization/matching/visualize.py) | 3-panel figure: full `satellite01.tif` with **all 100 ranked candidate patches** drawn as numbered, color-graded markers (rank 1 = bright red, rank 100 = cool purple); zoom around rank-1; UAV view. GT marker (magenta ★) and yellow error connector overlaid when bounds are available |
+| 9b. "GT vs top-100" map | [`draw_gt_vs_topn_centroids`](localization/matching/visualize.py) | Single satellite-map panel (paper Fig. 5(a) style): all 100 candidate centroids as small dots, GT as a red ★, and a **yellow ring** on the candidate nearest GT (top-N recall diagnostic). Saved to `outputs/01/gt_vs_top100_<image>.png` |
 
 ### What to expect
 
@@ -186,7 +196,8 @@ Now the online side. Default demo: `UAV-VisLoc/01/drone/01_0022.JPG`.
 ### Outputs
 
 - `outputs/01/01_0022_preprocessed.jpg` — the 500×500 yaw-aligned UAV image
-- `outputs/01/match_01_0022.png` — the 2-panel result figure
+- `outputs/01/match_top100_01_0022.png` — the 3-panel top-100 result figure
+- `outputs/01/gt_vs_top100_01_0022.png` — the "GT vs top-100 matches" map (Fig. 5(a) style)
 
 ---
 

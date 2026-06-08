@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -44,9 +44,22 @@ def extract_contours_from_mask(mask: np.ndarray, min_area: float = 100.0, method
     raise ValueError(f"Unknown contour method: {method!r}")
 
 
-def contour_to_polygon(contour: np.ndarray, epsilon_factor: float = 0.02) -> List[List[float]]:
-    """Douglas-Peucker simplification of a contour (paper §4.2, tau=2px ~ 0.02 of perimeter)."""
-    epsilon = epsilon_factor * cv2.arcLength(contour, True)
+def contour_to_polygon(
+    contour: np.ndarray,
+    tolerance_px: float = 2.0,
+    epsilon_factor: Optional[float] = None,
+) -> List[List[float]]:
+    """Douglas-Peucker simplification of a contour.
+
+    Per paper §4.2 (Table, line 1206) the tolerance is a **fixed** ``tau = 2 px``,
+    which is the default here. Passing ``epsilon_factor`` instead applies the
+    legacy perimeter-relative tolerance ``epsilon_factor * arcLength`` (kept for
+    back-compat).
+    """
+    if epsilon_factor is not None:
+        epsilon = float(epsilon_factor) * cv2.arcLength(contour, True)
+    else:
+        epsilon = float(tolerance_px)
     polygon = cv2.approxPolyDP(contour, epsilon, True)
     return polygon.reshape(-1, 2).tolist()
 

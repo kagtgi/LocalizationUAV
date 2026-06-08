@@ -1,0 +1,122 @@
+================================================================================
+LocalizationUAV — finalization log (paper-fidelity pass)
+Date: 2026-06-08
+Scope: align the implementation with paper_draft/main.tex (do not edit the paper).
+Notes below are written so they can be lifted directly into the paper's
+Implementation / Experimental-setup sections.
+================================================================================
+
+--------------------------------------------------------------------------------
+1. Triangulation — Constrained Delaunay via interior filtering  (paper §4.3)
+--------------------------------------------------------------------------------
+The paper specifies a Constrained Delaunay Triangulation (CDT) of each building
+polygon, with the polygon boundary edges as the constraint set
+(Eq. cdt_edges) so that no triangle crosses the building boundary and the mesh
+has exactly V-2 triangles for a V-vertex simple polygon.
+
+Implementation (suggested wording for the paper):
+"We realise the boundary-constrained triangulation by interior filtering: we
+compute the Delaunay triangulation of the polygon's vertex set (no Steiner
+points) and discard every triangle whose centroid lies outside the polygon
+(point-in-polygon test against the segmentation contour, repaired with a
+zero-width buffer when self-intersecting). For the simple building footprints
+produced by the segmentation stage this yields exactly the interior mesh of a
+boundary-edge-constrained Delaunay triangulation (V-2 triangles for a
+V-vertex polygon) without requiring an external constrained-triangulation
+dependency."
+
+Rationale for the choice (no new dependency): shapely is already a project
+dependency; a full CDT library (e.g. Shewchuk's 'triangle') would add a
+compiled dependency for an identical result on these inputs.
+
+Verification: an L-shaped (6-vertex, one reflex corner) polygon yields exactly
+4 = V-2 interior triangles, all with centroids inside the polygon
+(scripts/verify_finalization.py).
+
+Code: localization/geometry/descriptor.py  (_interior_simplex_mask,
+triangle_descriptors_from_polygon); the interior mask is threaded into the
+kernel-expansion dual graph in localization/geometry/triangulation.py
+(TriangulationGraph valid_mask) and localization/geometry/ekeland.py so that
+expansion never merges exterior triangles.
+
+--------------------------------------------------------------------------------
+2. Kernel-expansion depth cap  D_max = 4  (paper Algorithm 1, Table)
+--------------------------------------------------------------------------------
+Phase-1 kernel expansion is now capped at D_max = 4 rounds (each round merges at
+most one adjacent triangle), exactly as Algorithm 1 ("Until not merged OR
+depth = D_max") and the implementation-hyperparameter table (D_max = 4).
+Previously the expansion was uncapped (effectively 100 rounds), which by the
+paper's own Monotonicity Proposition over-expands P_sub and therefore reports
+too-small Ekeland angles.
+
+The cap is a parameter (default 4) so the D_max in {1, 2, 4, 8} ablation
+(paper Table) is reachable directly:
+  triangle_descriptors_from_polygon(polygon, max_depth=<D_max>)
+and is also exposed as GeometryConfig.max_expansion_depth.
+
+Code: localization/geometry/{descriptor,ekeland,triangulation}.py,
+localization/config.py (GeometryConfig).
+
+--------------------------------------------------------------------------------
+3. Ekeland (MFCA) angle extraction — verified against the paper, unchanged
+--------------------------------------------------------------------------------
+The Ekeland angle value is e_X = min(alpha(X), 180 deg) with
+alpha(X) = 360 deg - alpha_int(X), which is the closed form stated in
+Definition 2 / Eq. (ekeland_angle) and used in Propositions 1-2. The repo
+already computes exactly this from the interior angle of P_sub at each original
+triangle vertex; the axis-parallel reflection of Algorithm 1 Phase 2 is the
+geometric construction the paper proves equals this closed form, so it is not
+re-implemented separately. No change to the formula was needed.
+
+The correctness of the *extracted* value depends only on P_sub (hence on items
+1 and 2 above). Direct checks (scripts/verify_finalization.py):
+  - reflex vertex (interior 270 deg) -> e = 90 deg;
+  - convex vertex (interior 90 deg)  -> e = 180 deg;
+  - isolated triangle (no expansion) -> (e1,e2,e3) = (180,180,180);
+  - Monotonicity (Prop. 1): deeper expansion -> smaller-or-equal Ekeland angle
+    (observed min e: 123.7 deg at D_max=1 -> 90.0 deg at D_max=4).
+
+--------------------------------------------------------------------------------
+4. Polygon simplification — fixed Douglas-Peucker tolerance tau = 2 px (§4.2)
+--------------------------------------------------------------------------------
+Contour simplification now uses the paper's fixed tolerance tau = 2 px
+(Table) instead of the previous perimeter-relative epsilon = 0.02 * arcLength.
+Applied identically on the UAV branch and on every satellite patch.
+
+Code: localization/segmentation/contours.py (contour_to_polygon: tolerance_px,
+default 2.0), threaded through localization/segmentation/inference.py and
+localization/database/builder.py; SegmentationConfig.douglas_peucker_tolerance_px.
+
+--------------------------------------------------------------------------------
+5. Confirmed already-faithful (no change)
+--------------------------------------------------------------------------------
+  - 5-D descriptor f = (alpha1, alpha2, e1, e2, e3), two smallest interior
+    angles + three sorted Ekeland angles.
+  - KD-tree: scipy.spatial.KDTree, ell_1 (p=1) metric, leaf size 40.
+  - K = 5 nearest neighbours per UAV triangle; plurality patch vote.
+  - Satellite patches 500 px at 100-px stride; UAV preprocessed to 500x500.
+
+--------------------------------------------------------------------------------
+6. Known approximation (data limitation, documented for the paper)
+--------------------------------------------------------------------------------
+Scale normalisation (Step 1) rescales the UAV image by ref_height / height
+(reference altitude 400 m) rather than the GSD ratio delta_UAV = h * p_s / f_l,
+because the UAV-VisLoc per-image metadata (CSV columns: lat, lon, height,
+Omega, Kappa, Phi1, Phi2) provides no focal length f_l or pixel size p_s. With
+camera intrinsics, replace localization/preprocess/uav.py line ~101 with the
+GSD-ratio rescale to match Eq. (3.x) exactly.
+
+--------------------------------------------------------------------------------
+7. New visualization (user request) — paper Fig. 5(a) style
+--------------------------------------------------------------------------------
+localization/matching/visualize.py::draw_gt_vs_topn_centroids renders a single
+satellite-map panel with all top-N (default 100) candidate centroids as small
+multi-coloured dots, the ground truth as a red star, and a yellow ring on the
+candidate centroid nearest the GT (a top-N recall diagnostic). Saved per query
+to outputs/{flight_id}/gt_vs_top{N}_{image}.png; wired into notebooks 02 and 03.
+
+--------------------------------------------------------------------------------
+IMPORTANT: items 1, 2, and 4 change descriptor values. Any KD-tree database
+built before this pass (outputs/{id}/satellite{id}_kdtree.npz and the
+*_descriptors.csv) must be REBUILT (re-run notebook 01 / 03 build cell).
+================================================================================

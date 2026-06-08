@@ -43,7 +43,7 @@ def _postprocess_one(
     image_size: Tuple[int, int],
     score_threshold: float,
     min_area: float,
-    epsilon_factor: float,
+    tolerance_px: float,
     max_size_quantile: float,
     contour_method: str,
 ) -> Tuple[np.ndarray, List[List[List[float]]]]:
@@ -62,7 +62,7 @@ def _postprocess_one(
     binary_mask = (combined > 0.5).astype(np.uint8)
 
     contours = extract_contours_from_mask(binary_mask, min_area=min_area, method=contour_method)
-    polygons = [contour_to_polygon(c, epsilon_factor=epsilon_factor) for c in contours]
+    polygons = [contour_to_polygon(c, tolerance_px=tolerance_px) for c in contours]
     contours, polygons = filter_large_polygons_dynamic(
         contours, polygons, image_shape=(h, w), quantile=max_size_quantile
     )
@@ -76,7 +76,7 @@ def segment_batch(
     device,
     score_threshold: float = 0.5,
     min_area: float = 50.0,
-    epsilon_factor: float = 0.02,
+    tolerance_px: float = 2.0,
     max_size_quantile: float = 0.995,
     contour_method: str = "marching_squares",
     batch_size: int = 4,
@@ -105,7 +105,7 @@ def segment_batch(
                     image_size=image.size,
                     score_threshold=score_threshold,
                     min_area=min_area,
-                    epsilon_factor=epsilon_factor,
+                    tolerance_px=tolerance_px,
                     max_size_quantile=max_size_quantile,
                     contour_method=contour_method,
                 )
@@ -119,7 +119,7 @@ def segment_image(
     device,
     score_threshold: float = 0.5,
     min_area: float = 50.0,
-    epsilon_factor: float = 0.02,
+    tolerance_px: float = 2.0,
     max_size_quantile: float = 0.995,
     contour_method: str = "marching_squares",
 ) -> Tuple[np.ndarray, List[List[List[float]]]]:
@@ -130,7 +130,7 @@ def segment_image(
         device=device,
         score_threshold=score_threshold,
         min_area=min_area,
-        epsilon_factor=epsilon_factor,
+        tolerance_px=tolerance_px,
         max_size_quantile=max_size_quantile,
         contour_method=contour_method,
         batch_size=1,
@@ -228,7 +228,7 @@ def polygons_from_soft_mask(
     soft_mask: np.ndarray,
     score_threshold: float = 0.5,
     min_area: float = 50.0,
-    epsilon_factor: float = 0.02,
+    tolerance_px: float = 2.0,
     max_size_quantile: float = 0.995,
     contour_method: str = "marching_squares",
 ) -> Tuple[np.ndarray, List[List[List[float]]]]:
@@ -236,7 +236,7 @@ def polygons_from_soft_mask(
     binary_mask = (soft_mask > float(score_threshold)).astype(np.uint8)
     h, w = binary_mask.shape[:2]
     contours = extract_contours_from_mask(binary_mask, min_area=min_area, method=contour_method)
-    polygons = [contour_to_polygon(c, epsilon_factor=epsilon_factor) for c in contours]
+    polygons = [contour_to_polygon(c, tolerance_px=tolerance_px) for c in contours]
     contours, polygons = filter_large_polygons_dynamic(
         contours, polygons, image_shape=(h, w), quantile=max_size_quantile
     )
