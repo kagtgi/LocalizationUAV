@@ -13,6 +13,7 @@ dist/
 .venv/
 venv/
 uav_env/
+localizationUAV/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -42,6 +43,7 @@ output/
 outputs/
 
 # UAV-VisLoc dataset (download separately; see notebooks/01_build_satellite_database.ipynb)
+UAV_VisLoc_dataset/
 UAV-VisLoc/01/**
 UAV-VisLoc/02/**
 UAV-VisLoc/03/**
