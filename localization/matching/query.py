@@ -1,8 +1,8 @@
-"""Step 5b - online query: K-NN retrieval + plurality vote (paper §4.5b).
+"""Step 5b - online query: K-NN retrieval + plurality vote.
 
-For each UAV descriptor, retrieve K=5 nearest satellite triangles by ell_1.
+For each UAV CFBVM-PF descriptor, retrieve K=5 nearest satellite descriptors by ell_1.
 Aggregate votes per parent ``patch_id``; the plurality winner determines the
-predicted satellite patch, whose pre-computed mean triangle centroid (in
+predicted satellite patch, whose pre-computed mean descriptor anchor (in
 parent-image pixel coordinates) is returned as the predicted position.
 
 ``query_uav`` returns only the rank-1 patch (the paper's headline output).

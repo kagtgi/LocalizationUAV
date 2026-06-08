@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -45,10 +45,14 @@ class SegmentationConfig:
 
 @dataclass
 class GeometryConfig:
-    """MFCA descriptor geometry (paper §4.3-4.4)."""
+    """CFBVM-PF descriptor geometry."""
 
-    # Paper Algorithm 1 / Table (D_max = 4): kernel-expansion depth cap.
-    # Override for the D_max in {1, 2, 4, 8} ablation.
+    # CFBVM-PF building shape vector radii (meters): r1=20, r2=40, r3=60.
+    reference_radii_m: Tuple[float, float, float] = (20.0, 40.0, 60.0)
+    # Existing UAV-VisLoc pipeline treats satellite tiles as ~0.3 m/px.
+    # Override this from height/GSD calibration when available.
+    meters_per_pixel: float = 0.3
+    # Legacy Ekeland option; kept so older config/notebook code does not fail.
     max_expansion_depth: int = 4
 
 

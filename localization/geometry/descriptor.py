@@ -1,57 +1,41 @@
-"""Step 4 - locked 5-D triangle descriptor (paper §4.4 Eq. f).
+"""CFBVM-PF 24-D building shape-vector descriptor.
 
-    f = (alpha_1, alpha_2, e_1, e_2, e_3)
+For every Douglas-Peucker vertex ``X`` on the building contours, CFBVM-PF
+partitions the local neighbourhood into three concentric annuli
+``[0, 20] m``, ``[20, 40] m``, ``[40, 60] m`` and eight 45-degree sectors.
+The descriptor is the building area inside each sector:
 
-where alpha_1 <= alpha_2 are the two smallest sorted interior angles, and
-e_1 <= e_2 <= e_3 are the three sorted Ekeland angles - all in (0, 180) deg.
+    f^X = [s11, s12, ..., s18, s21, ..., s28, s31, ..., s38]
 
-No optional shape, side-ratio, radius, or elongation flags: any deviation
-from this 5-tuple does not match the paper's specification.
+The returned areas are in square meters. Polygon coordinates remain in image
+pixels; ``meters_per_pixel`` converts both radii and intersected areas.
 """
 
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy.spatial import Delaunay
-from shapely.geometry import Point, Polygon
-
-from .ekeland import compute_expansion_ekeland_for_all_triangles
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 
 VertexXY = Tuple[float, float]
 
+CFBVM_REFERENCE_RADII_M: Tuple[float, float, float] = (20.0, 40.0, 60.0)
+CFBVM_SECTOR_COUNT = 8
+CFBVM_DESCRIPTOR_DIM = len(CFBVM_REFERENCE_RADII_M) * CFBVM_SECTOR_COUNT
+CFBVM_FEATURE_COLUMNS: Tuple[str, ...] = tuple(
+    f"s{i}{j}"
+    for i in range(1, len(CFBVM_REFERENCE_RADII_M) + 1)
+    for j in range(1, CFBVM_SECTOR_COUNT + 1)
+)
 
-def _interior_simplex_mask(tri: "Delaunay", polygon_np: np.ndarray) -> np.ndarray:
-    """Boolean mask over Delaunay simplices: True iff the triangle is inside the polygon.
-
-    Implements the boundary-respecting (Constrained) Delaunay Triangulation of
-    paper §4.3 by *interior filtering*: an unconstrained convex-hull Delaunay
-    triangulation emits triangles outside a non-convex footprint; we keep only
-    those whose centroid lies inside the (repaired) polygon. For simple building
-    footprints this reproduces the interior mesh of a boundary-edge-constrained
-    Delaunay triangulation without an extra geometry dependency.
-    """
-    n = len(tri.simplices)
-    try:
-        poly = Polygon(polygon_np)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-    except Exception:
-        return np.ones(n, dtype=bool)
-    if poly.is_empty or poly.area <= 0.0:
-        return np.ones(n, dtype=bool)
-
-    centroids = polygon_np[tri.simplices].mean(axis=1)  # (T, 2)
-    mask = np.fromiter(
-        (poly.contains(Point(float(cx), float(cy))) for cx, cy in centroids),
-        dtype=bool,
-        count=n,
-    )
-    # Degenerate guard: if nothing survived, fall back to the full set.
-    return mask if mask.any() else np.ones(n, dtype=bool)
+# UAV-VisLoc satellite tiles are treated as approximately 0.3 m/px in the
+# existing tutorial/pipeline (100 px stride ~= 30 m). Callers can override this
+# when height/GSD calibration supplies a different scale.
+DEFAULT_METERS_PER_PIXEL = 0.3
 
 
 def _dist(p1: VertexXY, p2: VertexXY) -> float:
@@ -59,7 +43,11 @@ def _dist(p1: VertexXY, p2: VertexXY) -> float:
 
 
 def interior_angles(v0: VertexXY, v1: VertexXY, v2: VertexXY) -> List[float]:
-    """Three interior angles of a triangle (deg), sorted ascending."""
+    """Three interior angles of a triangle (deg), sorted ascending.
+
+    Kept as a lightweight geometry helper for external callers; the active
+    descriptor pipeline no longer uses triangle/Ekeland features.
+    """
     a = _dist(v1, v2)
     b = _dist(v0, v2)
     c = _dist(v0, v1)
@@ -74,73 +62,194 @@ def interior_angles(v0: VertexXY, v1: VertexXY, v2: VertexXY) -> List[float]:
     return sorted([angle_a, angle_b, angle_c])
 
 
-def triangle_descriptor(
-    v0: VertexXY,
-    v1: VertexXY,
-    v2: VertexXY,
-    ekeland_v0: float,
-    ekeland_v1: float,
-    ekeland_v2: float,
+def _as_xy_array(polygon_xy: Sequence[Sequence[float]]) -> np.ndarray:
+    coords = np.asarray(polygon_xy, dtype=np.float64)
+    if coords.ndim != 2 or coords.shape[1] != 2:
+        return np.zeros((0, 2), dtype=np.float64)
+    if coords.shape[0] >= 2 and np.allclose(coords[0], coords[-1]):
+        coords = coords[:-1]
+    return coords
+
+
+def _repaired_polygon(coords: np.ndarray):
+    if coords.shape[0] < 3:
+        return None
+    try:
+        geom = Polygon(coords)
+    except Exception:
+        return None
+    if not geom.is_valid:
+        geom = geom.buffer(0)
+    if geom.is_empty or geom.area <= 0.0:
+        return None
+    return geom
+
+
+def _radii_to_pixels(
+    reference_radii_m: Sequence[float],
+    meters_per_pixel: float,
 ) -> np.ndarray:
-    """Assemble the 5-D descriptor (alpha_1, alpha_2, e_1, e_2, e_3)."""
-    angles_sorted = interior_angles(v0, v1, v2)
-    alpha1, alpha2 = angles_sorted[0], angles_sorted[1]
-    eke_sorted = sorted([float(ekeland_v0), float(ekeland_v1), float(ekeland_v2)])
-    return np.asarray([alpha1, alpha2, eke_sorted[0], eke_sorted[1], eke_sorted[2]], dtype=np.float32)
+    radii_m = np.asarray(reference_radii_m, dtype=np.float64)
+    if radii_m.ndim != 1 or radii_m.size != 3:
+        raise ValueError(f"reference_radii_m must contain exactly 3 radii; got {reference_radii_m!r}")
+    if not np.all(np.isfinite(radii_m)) or np.any(radii_m <= 0.0):
+        raise ValueError(f"reference_radii_m must be positive finite values; got {reference_radii_m!r}")
+    if np.any(np.diff(radii_m) <= 0.0):
+        raise ValueError(f"reference_radii_m must be strictly increasing; got {reference_radii_m!r}")
+    meters_per_pixel = float(meters_per_pixel)
+    if not math.isfinite(meters_per_pixel) or meters_per_pixel <= 0.0:
+        raise ValueError(f"meters_per_pixel must be a positive finite value; got {meters_per_pixel!r}")
+    return radii_m / meters_per_pixel
+
+
+def _polar_point(center_xy: VertexXY, radius_px: float, angle_deg: float) -> VertexXY:
+    """Image-coordinate polar point; positive angles advance clockwise."""
+    theta = math.radians(float(angle_deg))
+    return (
+        float(center_xy[0]) + float(radius_px) * math.cos(theta),
+        float(center_xy[1]) + float(radius_px) * math.sin(theta),
+    )
+
+
+def _sector_polygon(
+    center_xy: VertexXY,
+    inner_radius_px: float,
+    outer_radius_px: float,
+    start_angle_deg: float,
+    end_angle_deg: float,
+    arc_segments: int,
+) -> Optional[Polygon]:
+    if outer_radius_px <= 0.0 or end_angle_deg <= start_angle_deg:
+        return None
+
+    n_segments = max(2, int(arc_segments))
+    angles = np.linspace(float(start_angle_deg), float(end_angle_deg), n_segments + 1)
+    outer = [_polar_point(center_xy, outer_radius_px, a) for a in angles]
+    if inner_radius_px <= 1e-9:
+        coords = [tuple(map(float, center_xy))] + outer
+    else:
+        inner = [_polar_point(center_xy, inner_radius_px, a) for a in angles[::-1]]
+        coords = outer + inner
+
+    try:
+        sector = Polygon(coords)
+    except Exception:
+        return None
+    if not sector.is_valid:
+        sector = sector.buffer(0)
+    if sector.is_empty or sector.area <= 0.0:
+        return None
+    return sector
+
+
+def building_shape_vector(
+    vertex_xy: VertexXY,
+    building_geometry,
+    reference_radii_m: Sequence[float] = CFBVM_REFERENCE_RADII_M,
+    meters_per_pixel: float = DEFAULT_METERS_PER_PIXEL,
+    arc_segments: int = 12,
+) -> np.ndarray:
+    """Compute one 24-D CFBVM-PF vector for a contour vertex.
+
+    ``building_geometry`` should represent the union of all building polygons in
+    the current image/patch, matching the paper's "distribution of buildings in
+    the area" definition rather than a single-building-only descriptor.
+    """
+    if building_geometry is None or building_geometry.is_empty:
+        return np.zeros((CFBVM_DESCRIPTOR_DIM,), dtype=np.float32)
+
+    radii_px = _radii_to_pixels(reference_radii_m, meters_per_pixel)
+    area_scale = float(meters_per_pixel) ** 2
+    sector_angle = 360.0 / float(CFBVM_SECTOR_COUNT)
+
+    values: List[float] = []
+    inner_radius = 0.0
+    for outer_radius in radii_px:
+        for sector_idx in range(CFBVM_SECTOR_COUNT):
+            start = sector_idx * sector_angle
+            end = (sector_idx + 1) * sector_angle
+            sector = _sector_polygon(
+                center_xy=vertex_xy,
+                inner_radius_px=float(inner_radius),
+                outer_radius_px=float(outer_radius),
+                start_angle_deg=start,
+                end_angle_deg=end,
+                arc_segments=arc_segments,
+            )
+            if sector is None:
+                values.append(0.0)
+                continue
+            values.append(float(building_geometry.intersection(sector).area) * area_scale)
+        inner_radius = float(outer_radius)
+
+    return np.asarray(values, dtype=np.float32)
+
+
+def building_shape_vectors_from_polygons(
+    polygons_xy: Sequence[Sequence[Sequence[float]]],
+    reference_radii_m: Sequence[float] = CFBVM_REFERENCE_RADII_M,
+    meters_per_pixel: float = DEFAULT_METERS_PER_PIXEL,
+    arc_segments: int = 12,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return ``(descriptors (N,24), anchors (N,2))`` for all contour vertices.
+
+    ``polygons_xy`` is the set of Douglas-Peucker building contours in one
+    image/patch. Every vertex becomes one descriptor anchor, and every sector
+    area is measured against the union of all valid building polygons.
+    """
+    valid_geometries = []
+    anchors: List[VertexXY] = []
+
+    for polygon_xy in polygons_xy:
+        coords = _as_xy_array(polygon_xy)
+        geom = _repaired_polygon(coords)
+        if geom is None:
+            continue
+        valid_geometries.append(geom)
+        anchors.extend((float(x), float(y)) for x, y in coords)
+
+    if not valid_geometries or not anchors:
+        return (
+            np.zeros((0, CFBVM_DESCRIPTOR_DIM), dtype=np.float32),
+            np.zeros((0, 2), dtype=np.float32),
+        )
+
+    building_geometry = unary_union(valid_geometries)
+    if building_geometry.is_empty:
+        return (
+            np.zeros((0, CFBVM_DESCRIPTOR_DIM), dtype=np.float32),
+            np.zeros((0, 2), dtype=np.float32),
+        )
+
+    descriptors = [
+        building_shape_vector(
+            vertex_xy=anchor,
+            building_geometry=building_geometry,
+            reference_radii_m=reference_radii_m,
+            meters_per_pixel=meters_per_pixel,
+            arc_segments=arc_segments,
+        )
+        for anchor in anchors
+    ]
+    return np.vstack(descriptors).astype(np.float32, copy=False), np.asarray(anchors, dtype=np.float32)
 
 
 def triangle_descriptors_from_polygon(
-    polygon_xy: Sequence[Sequence[float]], max_depth: int = 4
+    polygon_xy: Sequence[Sequence[float]],
+    max_depth: int = 4,
+    reference_radii_m: Sequence[float] = CFBVM_REFERENCE_RADII_M,
+    meters_per_pixel: float = DEFAULT_METERS_PER_PIXEL,
+    arc_segments: int = 12,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """CDT a polygon and return ``(descriptors (T,5), centroids (T,2))``.
+    """Compatibility wrapper returning CFBVM-PF vectors for one polygon.
 
-    Vertices are the polygon's own vertices (no Steiner points). The triangulation
-    respects the polygon boundary via interior filtering (see
-    :func:`_interior_simplex_mask`), matching the Constrained Delaunay
-    Triangulation of paper §4.3. ``max_depth`` is the paper's kernel-expansion
-    cap ``D_max`` (Algorithm 1, default 4).
+    ``max_depth`` is ignored; it remains in the signature so older notebook
+    calls that configured Ekeland kernel expansion continue to run.
     """
-    polygon_np = np.asarray(polygon_xy, dtype=np.float64)
-    if polygon_np.shape[0] < 3:
-        return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
-
-    try:
-        tri = Delaunay(polygon_np)
-    except Exception:
-        return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
-
-    interior_mask = _interior_simplex_mask(tri, polygon_np)
-    expansion_results = compute_expansion_ekeland_for_all_triangles(
-        tri, interior_mask=interior_mask, max_depth=int(max_depth)
+    _ = max_depth
+    return building_shape_vectors_from_polygons(
+        [polygon_xy],
+        reference_radii_m=reference_radii_m,
+        meters_per_pixel=meters_per_pixel,
+        arc_segments=arc_segments,
     )
-
-    descriptors: List[np.ndarray] = []
-    centroids: List[np.ndarray] = []
-    for result in expansion_results:
-        verts = result["seed_vertices"]
-        coords = result["seed_coordinates"]
-        eke = result["ekeland_angles"]
-        v0, v1, v2 = (tuple(coords[0]), tuple(coords[1]), tuple(coords[2]))
-        descriptor = triangle_descriptor(
-            v0,
-            v1,
-            v2,
-            ekeland_v0=eke.get(verts[0], 0.0),
-            ekeland_v1=eke.get(verts[1], 0.0),
-            ekeland_v2=eke.get(verts[2], 0.0),
-        )
-        descriptors.append(descriptor)
-        centroids.append(
-            np.array(
-                [
-                    (v0[0] + v1[0] + v2[0]) / 3.0,
-                    (v0[1] + v1[1] + v2[1]) / 3.0,
-                ],
-                dtype=np.float32,
-            )
-        )
-
-    if not descriptors:
-        return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
-
-    return np.vstack(descriptors), np.vstack(centroids)

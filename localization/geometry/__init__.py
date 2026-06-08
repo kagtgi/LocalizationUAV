@@ -10,7 +10,12 @@ from .ekeland import (
     compute_expansion_ekeland_for_all_triangles,
 )
 from .descriptor import (
-    triangle_descriptor,
+    CFBVM_DESCRIPTOR_DIM,
+    CFBVM_FEATURE_COLUMNS,
+    CFBVM_REFERENCE_RADII_M,
+    DEFAULT_METERS_PER_PIXEL,
+    building_shape_vector,
+    building_shape_vectors_from_polygons,
     triangle_descriptors_from_polygon,
     interior_angles,
 )
@@ -23,7 +28,12 @@ __all__ = [
     "EkelandAnalyzer",
     "calculate_ekeland_angles_on_boundary",
     "compute_expansion_ekeland_for_all_triangles",
-    "triangle_descriptor",
+    "CFBVM_DESCRIPTOR_DIM",
+    "CFBVM_FEATURE_COLUMNS",
+    "CFBVM_REFERENCE_RADII_M",
+    "DEFAULT_METERS_PER_PIXEL",
+    "building_shape_vector",
+    "building_shape_vectors_from_polygons",
     "triangle_descriptors_from_polygon",
     "interior_angles",
 ]
