@@ -108,6 +108,35 @@ def _plurality_vote_codes(
     return winner_code, winner_votes, runner_up, counts
 
 
+def _weighted_vote_codes(
+    indices: np.ndarray,
+    distances: np.ndarray,
+    patch_id_codes: np.ndarray,
+) -> Tuple[int, int, int, np.ndarray]:
+    """Distance-weighted voting (ablation): each match votes 1/(1 + d).
+
+    Returns the same shape of result as :func:`_plurality_vote_codes`; the
+    per-patch weighted sums are returned as ``counts`` (float64 rounded into
+    int semantics is avoided - callers treat counts ordinally).
+    """
+    flat_codes = patch_id_codes[np.asarray(indices).flatten()]
+    flat_dist = np.asarray(distances, dtype=np.float64).flatten()
+    if flat_codes.size == 0:
+        return -1, 0, 0, np.zeros(0, dtype=np.float64)
+    n_patches = int(patch_id_codes.max()) + 1 if patch_id_codes.size else 0
+    weights = 1.0 / (1.0 + flat_dist)
+    counts = np.bincount(flat_codes, weights=weights, minlength=n_patches)
+    winner_code = int(counts.argmax())
+    winner_votes = float(counts[winner_code])
+    if counts.size > 1:
+        runner_up = float(np.partition(counts, -2)[-2])
+    else:
+        runner_up = 0.0
+    if runner_up > winner_votes:
+        runner_up = winner_votes
+    return winner_code, winner_votes, runner_up, counts
+
+
 def _top_n_from_counts(
     counts: np.ndarray,
     db: SatelliteDatabase,
@@ -144,19 +173,31 @@ def query_uav(
     db: SatelliteDatabase,
     k: int = 5,
     top_n: int = 100,
+    p: float = 1,
+    weighted: bool = False,
 ) -> Optional[QueryResult]:
     """Retrieve K-NN, vote, return the rank-1 patch centroid plus the top-N list.
 
     ``top_n`` controls how many ranked patches are returned on the result's
     ``top_n`` field (does NOT change the plurality winner). Set ``top_n=0``
     to skip building this list.
+
+    ``p`` is the Minkowski retrieval metric (1 = ell_1, the paper's choice;
+    2 only for the ell_2 ablation). ``weighted=True`` switches plurality
+    voting to distance-weighted voting (weight 1/(1+d) per match) for the
+    voting-strategy ablation; vote counts are then rounded weighted sums.
     """
     uav_descriptors = np.ascontiguousarray(np.asarray(uav_descriptors, dtype=np.float32))
     if uav_descriptors.shape[0] == 0 or db.size == 0:
         return None
 
-    distances, indices = db.query(uav_descriptors, k=int(k))
-    winner_code, winner_votes, runner_up, counts = _plurality_vote_codes(indices, db.patch_id_codes)
+    distances, indices = db.query(uav_descriptors, k=int(k), p=p)
+    if weighted:
+        winner_code, winner_votes, runner_up, counts = _weighted_vote_codes(
+            indices, distances, db.patch_id_codes
+        )
+    else:
+        winner_code, winner_votes, runner_up, counts = _plurality_vote_codes(indices, db.patch_id_codes)
     if winner_code < 0:
         return None
 

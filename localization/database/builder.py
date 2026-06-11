@@ -10,7 +10,7 @@ satellite uses ``batch_size > 1`` to amortize forward-pass overhead across
 from __future__ import annotations
 
 import os
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -89,6 +89,8 @@ def build_satellite_descriptors(
     batch_size: int = 4,
     output_csv: Optional[str] = None,
     progress: bool = True,
+    polygon_sink: Optional[Callable[[str, Tuple[int, int], List[List[List[float]]]], None]] = None,
+    max_patches: Optional[int] = None,
 ) -> pd.DataFrame:
     """Iterate patches of a satellite GeoTIFF and collect 5-D descriptors.
 
@@ -96,6 +98,12 @@ def build_satellite_descriptors(
     to amortize the cost of running the model. All patches go through the
     same ``segment_batch`` function used for the UAV image, so segmentation
     quality is identical on both branches.
+
+    ``polygon_sink(patch_id, (tl_x, tl_y), polygons)`` is called once per patch
+    that yields at least one polygon; ``eval.py`` uses it to cache segmentation
+    output so descriptor ablations (e.g. the ``D_max`` sweep) can recompute
+    descriptors without re-running Mask R-CNN. ``max_patches`` caps the number
+    of patches processed (smoke testing only - NOT for paper results).
 
     Returns a DataFrame with columns:
         ``patch_id, top_left_x, top_left_y, centroid_x, centroid_y,
@@ -138,6 +146,8 @@ def build_satellite_descriptors(
         for (_binary, polygons), (pid, tx, ty) in zip(results, meta):
             if not polygons:
                 continue
+            if polygon_sink is not None:
+                polygon_sink(pid, (tx, ty), polygons)
             desc, cent = _polygons_to_descriptors(polygons, offset_xy=(tx, ty), max_depth=max_depth)
             for d, c in zip(desc, cent):
                 records.append(
@@ -157,13 +167,17 @@ def build_satellite_descriptors(
                 )
 
     batch_size = max(1, int(batch_size))
+    n_seen = 0
     for patch_pil, patch_id, (tl_x, tl_y) in iterator:
         pending_patches.append(patch_pil)
         pending_meta.append((patch_id, tl_x, tl_y))
+        n_seen += 1
         if len(pending_patches) >= batch_size:
             _flush(pending_patches, pending_meta)
             pending_patches = []
             pending_meta = []
+        if max_patches is not None and n_seen >= int(max_patches):
+            break
     _flush(pending_patches, pending_meta)
 
     df = pd.DataFrame.from_records(

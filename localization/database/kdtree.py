@@ -49,8 +49,10 @@ class SatelliteDatabase:
         descriptors = np.ascontiguousarray(np.asarray(descriptors, dtype=np.float32))
         centroids = np.ascontiguousarray(np.asarray(centroids, dtype=np.float32))
         patch_ids = np.asarray(patch_ids, dtype=object)
-        if descriptors.ndim != 2 or descriptors.shape[1] != 5:
-            raise ValueError(f"descriptors must be shape (N, 5); got {descriptors.shape}")
+        # The paper's descriptor is 5-D; lower-dimensional slices are accepted
+        # for the descriptor-component ablations (alpha-only, MFCA-only).
+        if descriptors.ndim != 2 or descriptors.shape[1] < 1:
+            raise ValueError(f"descriptors must be shape (N, d>=1); got {descriptors.shape}")
         if centroids.shape != (descriptors.shape[0], 2):
             raise ValueError(f"centroids must be shape (N, 2); got {centroids.shape}")
         if patch_ids.shape != (descriptors.shape[0],):
@@ -168,11 +170,16 @@ class SatelliteDatabase:
 
     # ------------- query -------------
 
-    def query(self, uav_descriptors: np.ndarray, k: int = 5) -> Tuple[np.ndarray, np.ndarray]:
-        """K-NN under ell_1; returns ``(distances (M, k), indices (M, k))``."""
+    def query(self, uav_descriptors: np.ndarray, k: int = 5, p: float = 1) -> Tuple[np.ndarray, np.ndarray]:
+        """K-NN under Minkowski-``p``; returns ``(distances (M, k), indices (M, k))``.
+
+        ``p=1`` (ell_1/cityblock, the paper's metric) is the default; ``p=2``
+        is exposed only for the ell_2 ablation row.
+        """
         uav_descriptors = np.ascontiguousarray(np.asarray(uav_descriptors, dtype=np.float32))
-        if uav_descriptors.ndim != 2 or uav_descriptors.shape[1] != 5:
-            raise ValueError(f"uav_descriptors must be shape (M, 5); got {uav_descriptors.shape}")
+        dim = int(self.descriptors.shape[1])
+        if uav_descriptors.ndim != 2 or uav_descriptors.shape[1] != dim:
+            raise ValueError(f"uav_descriptors must be shape (M, {dim}); got {uav_descriptors.shape}")
         k_eff = int(min(k, self.size))
         if k_eff == 0:
             return (
@@ -180,7 +187,7 @@ class SatelliteDatabase:
                 np.zeros((uav_descriptors.shape[0], 0), dtype=np.int64),
             )
         # p=1 = Minkowski p=1 = ell_1 (cityblock) per paper §4.5.
-        distances, indices = self.tree.query(uav_descriptors, k=k_eff, p=1)
+        distances, indices = self.tree.query(uav_descriptors, k=k_eff, p=p)
         if k_eff == 1:
             distances = distances.reshape(-1, 1)
             indices = indices.reshape(-1, 1)

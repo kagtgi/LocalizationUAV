@@ -78,14 +78,35 @@ class UAVPreprocessor:
             "yaw_applied": pose.yaw,
         }
 
-    def process(self, img_path: str, csv_path: str) -> Tuple[Image.Image, Image.Image, Dict[str, float]]:
+    def process(
+        self,
+        img_path: str,
+        csv_path: str,
+        *,
+        apply_yaw: bool = True,
+        yaw_noise_deg: float = 0.0,
+        scale_error: float = 1.0,
+    ) -> Tuple[Image.Image, Image.Image, Dict[str, float]]:
+        """Run Steps 1a-1d on one UAV image.
+
+        Sensitivity-analysis knobs (paper §6 Sensitivity Analysis):
+
+        * ``apply_yaw=False`` skips the compass yaw alignment entirely
+          (the "w/o heading" variant of the main comparison table).
+        * ``yaw_noise_deg`` adds a signed perturbation to the compass heading
+          before alignment, simulating IMU heading noise (+-5/10/15 deg).
+        * ``scale_error`` multiplies the altitude-based rescale factor,
+          simulating a GSD/altitude estimate error (e.g. 1.10 = +10%).
+        """
         img_raw = Image.open(img_path).convert("RGB")
         row = self._load_pose_row(img_path, csv_path)
         pose = self._extract_pose(row)
 
         img = img_raw.copy()
         # Step 1b - yaw alignment (paper §4.1): rotate by -yaw so North is up.
-        img = img.rotate(-pose.yaw, resample=Image.BICUBIC, expand=True)
+        yaw_applied = (pose.yaw + float(yaw_noise_deg)) if apply_yaw else 0.0
+        if apply_yaw:
+            img = img.rotate(-yaw_applied, resample=Image.BICUBIC, expand=True)
 
         # Step 1c - roll/pitch correction.
         if abs(pose.roll) > 0.5:
@@ -98,9 +119,9 @@ class UAVPreprocessor:
             img = img.crop((0, (h_curr - new_h) // 2, w_curr, (h_curr + new_h) // 2))
 
         # Step 1a - scale normalization (height -> reference height ~400m).
-        scale = self.ref_height / max(pose.height, 1.0)
+        scale = self.ref_height / max(pose.height, 1.0) * float(scale_error)
         w, h = img.size
-        img = img.resize((int(w * scale), int(h * scale)), resample=Image.BICUBIC)
+        img = img.resize((max(int(w * scale), 1), max(int(h * scale), 1)), resample=Image.BICUBIC)
 
         # Step 1d - central crop + resize.
         w, h = img.size
@@ -113,7 +134,9 @@ class UAVPreprocessor:
         img = img.crop((left, upper, right, lower))
         img_rotated = img.resize((self.out_size, self.out_size), resample=Image.BICUBIC)
 
-        return img_raw, img_rotated, self._build_meta(pose)
+        meta = self._build_meta(pose)
+        meta["yaw_applied"] = yaw_applied
+        return img_raw, img_rotated, meta
 
 
 def process_uav(
@@ -122,7 +145,16 @@ def process_uav(
     crop_size: int = 2000,
     out_size: int = 500,
     ref_height: float = 400.0,
+    apply_yaw: bool = True,
+    yaw_noise_deg: float = 0.0,
+    scale_error: float = 1.0,
 ) -> Tuple[Image.Image, Image.Image, Dict[str, float]]:
     """Functional API for the UAV preprocessing pipeline."""
     preprocessor = UAVPreprocessor(crop_size=crop_size, out_size=out_size, ref_height=ref_height)
-    return preprocessor.process(img_path=img_path, csv_path=csv_path)
+    return preprocessor.process(
+        img_path=img_path,
+        csv_path=csv_path,
+        apply_yaw=apply_yaw,
+        yaw_noise_deg=yaw_noise_deg,
+        scale_error=scale_error,
+    )

@@ -131,8 +131,9 @@ approaches (BRM~\cite{choi2020brm}, CFBVM~\cite{ouyang2024cfbvm}) operate on
 whole-building statistics and lose the \emph{spatial context between buildings},
 making them poorly discriminative in dense urban blocks where many buildings
 share similar individual shapes.
-No existing training-free method simultaneously encodes both intra-building
-shape and inter-building spatial context within a single descriptor.
+No existing training-free method simultaneously encodes both triangle-level
+shape and the structural context of the surrounding building footprint within
+a single descriptor.
 
 Our key insight is that \emph{building footprint geometry} is stable across
 all of these appearance variations: a polygon extracted from a nadir UAV image
@@ -283,7 +284,7 @@ density rings.
 Our method shares the VMAP paradigm with CFBVM but substitutes ring-area
 summation with a triangle-level angular descriptor that requires no overlap
 area computation, is invariant to segmentation polygon ordering, and carries
-explicit free-space context through the multi-obstacle MFCA.
+explicit free-space context through the kernel-expansion MFCA.
 
 
 \noindent\textbf{Deep learning and sequential methods.}
@@ -362,8 +363,8 @@ patch $\ell^*$ is the plurality winner:
 \;\bigl|\{(i,j) : j \in \mathcal{C}_i,\;\ell_j = \ell\}\bigr|.
 \label{eq:vote}
 \end{equation}
-The predicted UAV position $(x^*, y^*)$ is the geographic centroid of patch
-$\ell^*$.
+The predicted UAV position $(x^*, y^*)$ is the centroid of the building
+triangles of patch $\ell^*$ (Section~\ref{sec:vote}).
 
 \noindent\textit{Illustrative example.}
 Suppose $M=3$ UAV descriptors $\{f_1,f_2,f_3\}$ are matched against $N=6$
@@ -435,9 +436,13 @@ layers are required.
 The offline descriptor database occupies approximately 12\,MB per site
 (5-D float32 entries, ${\approx}600\text{k}$ triangles/site).
 
-\paragraph{Train/test split.}
-Following the official UAV-VisLoc protocol, 80\% of UAV images per site form
-the query set; the full satellite map is used as the reference.
+\paragraph{Query protocol.}
+Because the method requires no scene-specific training, no train/test split is
+needed: \emph{all} UAV images of each site are used as queries, and the full
+satellite map of that site is used as the reference.
+Queries from which no building polygon can be segmented produce no descriptor
+and are counted separately as uncovered queries (coverage is reported alongside
+the error metrics).
 
 \begin{figure}[t]
 \centering
@@ -563,6 +568,16 @@ The normalized image is center-cropped and resized to $500\!\times\!500$\,px.
 \paragraph{Technical advantage.}
 Heading alignment (assumed $\pm5^\circ$ accuracy) reduces rotational ambiguity
 in subsequent matching without any learned model.
+
+\paragraph{Implementation note.}
+The UAV-VisLoc per-image metadata provides no focal length $f_l$ or pixel
+pitch $p_s$, so Step 1a is realised as an altitude-ratio rescale
+$s = h_{\mathrm{ref}} / h$ to a reference altitude $h_{\mathrm{ref}} = 400$\,m
+rather than the exact GSD ratio; since the downstream descriptor uses only
+angular quantities, this affects segmentation scale consistency but not
+descriptor validity.
+The residual scale mismatch is quantified by the GSD-sensitivity experiment
+(Section~\ref{sec:sensitivity}).
 
 \subsection{Building Segmentation (Step 2)}
 \label{sec:seg}
@@ -834,9 +849,9 @@ Then
 
 \begin{corollary}[Shape-context separation]
 \label{cor:separation}
-Two triangles with identical shape but placed in urban environments where
-the inter-building free space differs by $\delta > 0$ in blocked arc at any
-vertex (in the sense of Proposition~\ref{prop:sensitivity}) have
+Two triangles with identical shape but placed in building footprints whose
+kernel expansion polygons have interior angles differing by $\delta > 0$ at
+any original vertex (in the sense of Proposition~\ref{prop:sensitivity}) have
 $\ell_1$ descriptor distance at least $\delta$:
 \begin{equation}
   \|f^t - f^{t'}\|_1 \;\ge\; \delta.
@@ -1052,8 +1067,9 @@ Theorem~\ref{thm:discriminative} and Corollary~\ref{cor:separation} further
 show that the $\ell_1$ separation between two same-shape triangles placed in
 geometrically different buildings is at least $\Delta = \min_i |e_i^t - e_i^{t'}|$,
 where the difference is determined by the $P_{\mathrm{sub}}$ expansion geometry.
-The ablation row ``MFCA single-building only'' in Table~\ref{tab:ablation}
-quantifies this experimentally.
+The kernel-expansion rows of Table~\ref{tab:ablation}
+($D_{\max} \in \{0,1,2,8\}$, where $D_{\max}=0$ removes the expansion context
+entirely) quantify this experimentally.
 
 \paragraph{5-D descriptor assembly.}
 The MFCA triplet is sorted in ascending order to yield $(e_1 \le e_2 \le e_3)$,
@@ -1082,9 +1098,9 @@ and the complete extraction pipeline.
   \includegraphics[width=0.32\linewidth]{figs/expansion_seed_13.png}
   \caption{Ekeland free-cone angle geometry at a building vertex.
     The maximal free cone (shaded sector) is the largest angular sector
-    centred at vertex $v$ whose open interior does not intersect any obstacle
-    edge in $\mathcal{O}_v^r$ (host sub-polygon boundary $\cup$ neighbouring
-    building edges within radius $r$).
+    centred at an original triangle vertex $v$ whose open interior does not
+    intersect the obstacle set $\mathcal{O}_v = \partial P_{\mathrm{sub}}$
+    (Eq.~\eqref{eq:obstacle}), the boundary of the kernel expansion polygon.
     Its angular width $e_v$ is the Ekeland angle.
     Three such scalars, one per triangle vertex, form the free-space
     sub-vector $(e_1, e_2, e_3)$ of the 5-D descriptor
@@ -1114,8 +1130,8 @@ the descriptor is $f = (45^\circ,\, 45^\circ,\, 72^\circ,\, 88^\circ,\,
 106^\circ)$.
 The shape sub-vector $(45^\circ, 45^\circ)$ is shared with any right-isosceles
 triangle, but the free-space sub-vector $(72^\circ, 88^\circ, 106^\circ)$
-is unique to the local inter-building spacing, making $f$ discriminative at
-the scene level.
+is specific to the footprint geometry surrounding the triangle, making $f$
+discriminative at the scene level.
 
 
 \subsection{KD-Tree Offline Indexing and Online Matching (Step 5)}
@@ -1167,14 +1183,18 @@ false-match model.
 Let $\ell_j$ be the patch identifier of satellite triangle $j$.
 Each pair $(i,j)$ with $j \in \mathcal{C}_i$ casts one vote for patch
 $\ell_j$, and the plurality winner is selected as in Eq.~\eqref{eq:vote}.
-The predicted UAV position $(x^*,y^*)$ is the geographic centroid of
-patch $\ell^*$, converted from pixel coordinates via:
+The predicted UAV position $(x^*,y^*)$ is the mean pixel centroid of the
+building triangles indexed under patch $\ell^*$ (a building-weighted patch
+centroid, which is slightly more precise than the geometric patch centre when
+buildings are off-centre), converted from pixel coordinates via:
 \begin{equation}
 \Delta\mathrm{lat} = p_y^* \cdot \delta_{\mathrm{sat}} / 111{,}320,\quad
 \Delta\mathrm{lon} = p_x^* \cdot \delta_{\mathrm{sat}} /
-  (111{,}320\cos\mathrm{lat}_0).
+  (111{,}320\cos\mathrm{lat}_0),
 \label{eq:geoconvert}
 \end{equation}
+implemented equivalently as linear interpolation within the map's
+georeferenced corner bounds.
 
 \paragraph{Discussion.}
 Plurality voting is robust to individual false matches: a segmentation error
@@ -1185,8 +1205,7 @@ We note that the current output resolution is bounded by the patch stride
 (100\,px $\times$ 0.3\,m/px = 30\,m); this means even a perfect descriptor
 match cannot achieve sub-30\,m error without a second refinement stage.
 Sub-patch localization via a RANSAC-based translation alignment between
-matched triangle centroids is a natural future extension and is prototyped
-as part of the ongoing evaluation.
+matched triangle centroids is a natural future extension.
 
 \subsection{Implementation Details}
 \label{sec:impl}
@@ -1226,7 +1245,11 @@ Position output & Estimator                    & Plurality patch vote \\
 \subsection{Evaluation Protocol}
 \label{sec:protocol}
 
-We evaluate on all 11 UAV-VisLoc sites using the official 80/20 query split.
+We evaluate on all 11 UAV-VisLoc sites, using every UAV image of each site as
+a query (Section~\ref{sec:dataset}, query protocol).
+Localization error is the ground distance between the predicted and
+ground-truth positions, computed from the map's georeferenced bounds under an
+equirectangular approximation at the map's centre latitude.
 Six metrics are reported, following the compendium in Section~\ref{sec:related}
 and the field conventions established by CFBVM~\cite{ouyang2024cfbvm},
 SWA-PF~\cite{yuan2025swapf}, and the UAV-VisLoc benchmark~\cite{uavvisloc2024}:
@@ -1235,11 +1258,23 @@ and Nassar et al.;
 (ii)~\textbf{Median error} (m): robust to outliers on sparse-building sites;
 (iii)~\textbf{RMSE} (m): penalizes large outlier errors; primary metric for
 SWA-PF comparison;
-(iv)~\textbf{R@10m} (\%): fine-grained urban discrimination;
-(v)~\textbf{R@50m} (\%): essential for sparse-building terrain
-(Shandan desert, Taizhou farmland) where the method is expected to degrade;
-(vi)~\textbf{Runtime} (s), end-to-end wall-clock time from raw image to 2-D
-position output.
+(iv)~\textbf{R@10m / R@20m / R@50m} (\%), the fraction of queries within
+10/20/50\,m of ground truth: R@10m measures fine-grained urban discrimination,
+while R@50m is essential for sparse-building terrain (Shandan desert, Taizhou
+farmland) where the method is expected to degrade;
+(v)~\textbf{Runtime} (s), end-to-end wall-clock time from raw image to 2-D
+position output, broken down into preprocessing, segmentation, descriptor
+extraction, and KD-tree query;
+(vi)~\textbf{Coverage} (\%), the fraction of queries yielding at least one
+descriptor.
+
+\paragraph{Reproducibility.}
+A single entry point (\texttt{eval.py} in the released code) reproduces every
+``Ours'' number and figure in this section: it builds the per-site descriptor
+databases, runs all queries and sensitivity sweeps, recomputes the ablation
+variants from cached segmentation polygons (so no ablation requires re-running
+Mask R-CNN), and emits the populated tables and plots.
+All stages are deterministic given the released Mask R-CNN checkpoint.
 
 \paragraph{Cross-dataset annotation policy.}
 Following the comparability protocol recommended by the benchmark community,
@@ -1420,10 +1455,17 @@ density; average triangle counts per altitude band are also reported.
 
 \subsection{Ablation Study}
 
-Table~\ref{tab:ablation} isolates the contribution of each design choice,
-including the critical comparison between the multi-obstacle MFCA and the
-single-building-only variant, descriptor-swap baselines replacing the MFCA
-with established polygon descriptors, and $K$ / voting strategy ablations.
+Table~\ref{tab:ablation} isolates the contribution of each design choice:
+descriptor-component ablations (interior angles vs.\ MFCA, the depth of the
+kernel expansion that gives the MFCA its context), the retrieval metric, and
+$K$ / voting-strategy ablations.
+All descriptor variants are recomputed from the cached segmentation polygons
+of the main run, so every row shares identical segmentation output and differs
+in exactly one component.
+The row $D_{\max}=0$ disables kernel expansion entirely
+($P_{\mathrm{sub}} = T$, hence $e \equiv (180^\circ,180^\circ,180^\circ)$),
+quantifying the total contribution of the Ekeland context beyond raw triangle
+shape.
 
 \begin{table}[htbp]
 \caption{Ablation study. All TBR; each row modifies one component.}
@@ -1437,16 +1479,11 @@ with established polygon descriptors, and $K$ / voting strategy ablations.
 \multicolumn{3}{l}{\textit{Descriptor component ablations}} \\
 Interior angles only ($\alpha_1,\alpha_2$)                      & TBR & TBR \\
 MFCA only ($e_1,e_2,e_3$)                                       & TBR & TBR \\
-\textbf{MFCA single-building only} (no neighbor $P_{k'}$ in $S_v$) & TBR & TBR \\
-Full 5-D CDT, random triangulation (no CDT)                     & TBR & TBR \\
+No kernel expansion ($D_{\max}=0$; $e\equiv180^\circ$)           & TBR & TBR \\
 Full 5-D CDT, $\ell_2$ distance                                       & TBR & TBR \\
 Full 5-D CDT, $D_{\max}=1$                                       & TBR & TBR \\
 Full 5-D CDT, $D_{\max}=2$                                       & TBR & TBR \\
 Full 5-D CDT, $D_{\max}=8$                                       & TBR & TBR \\
-\midrule
-\multicolumn{3}{l}{\textit{Descriptor-swap baselines (5-D, CDT, $\ell_1$)}} \\
-Turning function encoding~\cite{arkin1991efsd}                  & TBR & TBR \\
-Shape context histogram~\cite{belongie2002shape}                & TBR & TBR \\
 \midrule
 \multicolumn{3}{l}{\textit{Matching and voting ablations}} \\
 Top-1 match (no voting)                                         & TBR & TBR \\
@@ -1468,15 +1505,19 @@ $K=20$                                                          & TBR & TBR \\
 
 \paragraph{IMU heading noise.}
 Yaw errors of $\pm5^\circ$, $\pm10^\circ$, and $\pm15^\circ$ are simulated
-by rotating UAV images before preprocessing.
+by perturbing the compass heading before the Step-1b alignment (the
+perturbation sign alternates deterministically across the query sequence so
+the per-site mean perturbation is zero).
 These experiments determine whether descriptor rotation-invariance is
 sufficient to absorb mild misalignment, and whether the $\pm5^\circ$ heading
 assumption is a hard performance boundary.
+Sensitivity sweeps are run on a fixed 100-image-per-site subset.
 Results TBR.
 
 \paragraph{GSD mismatch.}
 Altitude estimate errors of $\pm10\%$ and $\pm20\%$ are simulated by
-applying incorrect scale factors in Step 1a; results TBR.
+applying the corresponding incorrect scale factor in Step 1a, on the same
+100-image-per-site subset; results TBR.
 
 \paragraph{Kernel expansion depth $D_{\max}$.}
 We vary $D_{\max} \in \{1, 2, 4, 8\}$ and report mean error per setting (TBR).
@@ -1485,10 +1526,12 @@ $D_{\max}$ limits $P_{\mathrm{sub}}$ to near the original triangle (less
 context); large $D_{\max}$ allows broader expansion (more context but
 diminishing marginal benefit as $P_{\mathrm{sub}}$ converges).
 
-\paragraph{Segmentation quality.}
-We correlate per-image Mask R-CNN building IoU (estimated on a 100-image
-manually annotated subset) with localization error to isolate segmentation
-failure from descriptor failure; results TBR.
+\paragraph{Segmentation density.}
+We correlate the per-query descriptor count $M$ (the number of triangles the
+segmentation stage yields) with localization error, isolating
+segmentation-sparsity failure from descriptor failure; per-site and
+per-altitude-band average $M$ values are reported alongside the error
+metrics. Results TBR.
 
 \subsection{Vote-Distribution Analysis}
 
@@ -1687,11 +1730,12 @@ voting over satellite patches converts the matching output to a predicted 2-D
 geographic position.
 
 Quantitative evaluation (RMSE, Mean, Median, Recall@\{10,20,50\}m) across
-all 11 UAV-VisLoc sites, an ablation study including multi-obstacle vs.\
-single-building MFCA, descriptor-swap baselines, $K$ and voting-strategy
-ablations, season and altitude stratifications, inlier vote diagnostics,
-and sensitivity analysis under IMU and GSD perturbations are to be reported
-upon completion of full experiments.
+all 11 UAV-VisLoc sites, an ablation study covering descriptor components,
+kernel-expansion depth $D_{\max}$, retrieval metric, and $K$ /
+voting-strategy choices, season and altitude stratifications, inlier vote
+diagnostics, and sensitivity analysis under IMU heading and GSD perturbations
+are to be reported upon completion of full experiments; the released
+\texttt{eval.py} reproduces all of them from a single command.
 
 \paragraph{Limitations.}
 (i) The method assumes building presence; it does not apply to open terrain
@@ -1699,9 +1743,10 @@ upon completion of full experiments.
 (ii) The current output is a patch centroid with position resolution limited
 by the patch stride (100\,px $\times$ 0.3\,m/px = 30\,m); sub-patch
 localization requires a second-stage triangle-to-triangle centroid alignment.
-(iii) The 1$^\circ$ angular sweep is a heuristic approximation; an exact
-$O(E\log E)$ computation based on sorted angular-interval complement would
-improve both precision and runtime.
+(iii) The Ekeland angle encodes geometric context only within a single
+segmented footprint (the kernel expansion never crosses the polygon boundary);
+inter-building spatial context across footprints is not captured and is a
+natural extension of the obstacle set.
 (iv) Citations for SSPT~\cite{fan2024sspt} and SWA-PF~\cite{yuan2025swapf}
 currently lack complete venue details; full entries will be provided upon
 publication.
