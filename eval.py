@@ -1044,9 +1044,9 @@ def cmd_estimate(args, cfg: EvalConfig) -> None:
         total_images += n_imgs
 
     if not have_data:
-        # Dataset not on disk: use canonical UAV-VisLoc numbers.
-        # satellite01 is 9774x26762 -> ~24.7k patches; maps vary, ~20k average.
-        total_patches = 11 * 20_000
+        # Dataset not on disk: typical = avg ~12k patches/site, worst = every map
+        # as large as the biggest (satellite01: 9774x26762 -> ~24.8k patches).
+        total_patches = 11 * 12_000      # typical
         total_images = 6_742
         print("Dataset not found on disk - using canonical UAV-VisLoc statistics.")
     else:
@@ -1054,34 +1054,60 @@ def cmd_estimate(args, cfg: EvalConfig) -> None:
         for site, n_patch, n_imgs in rows:
             print(f"{site:>4} {n_patch if n_patch is not None else '---':>9} {n_imgs:>7}")
 
+    total_images = total_images or 6_742
+    worst_patches = max(total_patches, 11 * 25_000)  # worst: all maps ~= largest
     n_sens_imgs = min(cfg.sensitivity_limit, 999) * 11 * 7  # 3 heading + 4 GSD runs
+    fwd_typ = total_patches + 2 * total_images + n_sens_imgs
+    fwd_worst = worst_patches + 2 * total_images + n_sens_imgs
+
+    # Mask R-CNN R50-FPN @500px throughput (img/s): (typical, worst-case-slow).
+    gpu = {"A100 / RTX 4090": (24, 12), "RTX 3060-12G / T4": (9, 4), "CPU only (8-core)": (0.7, 0.3)}
+
+    def hrs(n, rate):
+        return n / rate / 3600.0
+
+    # CPU-bound stages (single-threaded as eval.py runs them today).
+    geo_typ, geo_worst = 1.8, 4.0          # build-inline geometry over ~6.6M triangles
+    dmax_typ, dmax_worst = 4.0, 12.0       # D_max ablation recompute (use --skip-dmax to remove)
+    other_abl = 1.0                        # K / l2 / voting / component re-queries (cheap)
+
     print(f"""
 === Resource estimate for `python eval.py --stage all` ===
+(typical | WORST CASE; worst = every map ~= the largest + slow GPU throughput
+ + single-threaded CPU geometry/ablation as run today)
 
-Workload
-  Satellite DB build : ~{total_patches:,} Mask R-CNN forward passes (500x500), once
-  Main query run     : {total_images:,} images (preprocess + 1 segmentation + KD-query)
-  w/o-heading run    : {total_images:,} images (same cost as main)
-  Sensitivity sweeps : ~{n_sens_imgs:,} images ({cfg.sensitivity_limit}/site x 7 configs)
-  Ablation stage     : CPU only; D_max sweep re-triangulates the cached polygons
-                       of ~{total_patches:,} patches x {len(cfg.ablation_dmax)} depths (no GPU)
+Workload (GPU forward passes, 500x500)
+  Satellite DB build : {total_patches:,} | {worst_patches:,}   (one-time)
+  Query main+noyaw   : {2 * total_images:,} | {2 * total_images:,}
+  Sensitivity sweeps : {n_sens_imgs:,} | {n_sens_imgs:,}   ({cfg.sensitivity_limit}/site x 7 configs)
+  TOTAL forwards     : {fwd_typ:,} | {fwd_worst:,}
+  Satellite triangles: ~6.6M (drives CPU geometry in build + the D_max ablation)
 
-Estimated wall-clock (Mask R-CNN R50-FPN @500px, batch {cfg.batch_size})
-                      build        query(2x)     sensitivity   ablate(CPU)   total
-  A100 / 4090         ~1.5-2 h     ~2-3 h        ~1 h          ~3-6 h        ~8-12 h
-  T4 / RTX 3060       ~4-6 h       ~4-6 h        ~1.5-2 h      ~3-6 h        ~13-20 h
-  CPU only            ~80-120 h    ~30-50 h      not advised   ~3-6 h        infeasible
+Estimated wall-clock, full --stage all (typical | WORST CASE)
+  A100 / RTX 4090    : {hrs(fwd_typ, gpu['A100 / RTX 4090'][0]) + geo_typ + dmax_typ + other_abl:>4.0f} h | {hrs(fwd_worst, gpu['A100 / RTX 4090'][1]) + geo_worst + dmax_worst + other_abl:>4.0f} h
+  RTX 3060-12G / T4  : {hrs(fwd_typ, gpu['RTX 3060-12G / T4'][0]) + geo_typ + dmax_typ + other_abl:>4.0f} h | {hrs(fwd_worst, gpu['RTX 3060-12G / T4'][1]) + geo_worst + dmax_worst + other_abl:>4.0f} h
+  CPU only (8-core)  : {hrs(fwd_typ, gpu['CPU only (8-core)'][0]):>4.0f} h | {hrs(fwd_worst, gpu['CPU only (8-core)'][1]):>4.0f} h  (infeasible - GPU strongly advised)
+  With --skip-dmax, subtract ~{dmax_typ:.0f} h (typical) / ~{dmax_worst:.0f} h (worst) from the GPU rows.
+  Build alone is ~85-90% of GPU time; run it once, then query/ablate/report are cheap + resumable.
 
-Memory / disk
-  GPU VRAM            ~5-7 GB (batch {cfg.batch_size}; reduce --batch-size if OOM)
-  System RAM          <= 4 GB (largest KD-tree ~6.6M x 5 float32 ~ 130 MB + overhead)
-  Disk: dataset       ~17.7 GB (UAV-VisLoc)
-  Disk: caches        ~1-3 GB  (descriptor CSVs ~12 MB/site, polygon caches
-                       ~50-200 MB/site, per-image descriptor .npy files)
-  Disk: results       < 100 MB (records, metrics.json, tables.tex, figures)
+Memory / disk (WORST CASE)
+  GPU VRAM           : ~6-9 GB at batch {cfg.batch_size}; need >= 12 GB headroom for dense scenes.
+                       On an 8 GB card use --batch-size 4 (~4-5 GB).
+  System RAM         : ~8-10 GB peak (scalability builds the combined 6.6M-point
+                       KD-tree and pandas-reads full per-site descriptor CSVs).
+  Disk: dataset      : ~17.7 GB (UAV-VisLoc)
+  Disk: caches       : ~6-8 GB worst (polygon JSONL.gz can be large on dense maps;
+                       descriptor CSVs + per-image .npy/.json)
+  Disk: results      : < 100 MB
 
-All stages are resumable: re-running skips completed sites/images, so the run
-can be split across several GPU sessions (e.g. Colab/Kaggle).
+==> RECOMMENDED MACHINE (finish a full run in ~1 day, worst case ~1.5 days)
+  GPU   : 1x NVIDIA, >= 12 GB VRAM (RTX 3060-12G / 4070 / T4 / A10 / A100).
+          A100-40G or RTX 4090 -> ~12-24 h end-to-end.
+  CPU   : >= 8 cores, high single-core clock (geometry + ablation run per-stream).
+  RAM   : >= 16 GB (32 GB comfortable).
+  Disk  : >= 30 GB free SSD.
+  Cloud : a single A100 (Colab Pro+/Lambda/RunPod) for ~1 day, or free-tier T4
+          split across 2-3 resumable sessions.
 """)
 
 
