@@ -233,8 +233,29 @@ def run_test(model, data_loader, device, args):
                 tifffile.imwrite(str(mask_save_path), (pred_combined * 255).astype(np.uint8))
 
             if args.save_vis:
-                # ... (Đoạn code visualization matplotlib giữ nguyên như phần trước) ...
-                pass
+                base_np = img_tensor.permute(1, 2, 0).cpu().numpy()  # (H, W, C), float in [0, 1]
+                if base_np.shape[-1] == 1:
+                    base_np = np.repeat(base_np, 3, axis=-1)
+                elif base_np.shape[-1] > 3:
+                    base_np = base_np[..., :3]
+                base_255 = np.clip(base_np, 0.0, 1.0) * 255.0
+
+                overlay = make_overlay(base_255, gt_bool.astype(np.float32), color=(0, 255, 0), alpha=0.35)
+                overlay = make_overlay(overlay, pred_bool.astype(np.float32), color=(255, 0, 0), alpha=0.35)
+
+                fig, ax = plt.subplots(figsize=(6, 6))
+                ax.imshow(np.clip(overlay, 0, 255).astype(np.uint8))
+                ax.set_title(img_name)
+                ax.axis("off")
+                ax.legend(
+                    handles=[
+                        mpatches.Patch(color=(0, 1, 0), label="Ground truth"),
+                        mpatches.Patch(color=(1, 0, 0), label="Prediction"),
+                    ],
+                    loc="lower right", fontsize=7,
+                )
+                fig.savefig(vis_dir / f"{Path(img_name).stem}.png", dpi=150, bbox_inches="tight")
+                plt.close(fig)
 
     # --- TÍNH TOÁN METRICS TỔNG THỂ SAU KHI CHẠY XONG DATASET ---
     precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0

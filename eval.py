@@ -62,6 +62,7 @@ if str(REPO_ROOT) not in sys.path:
 # Torch-free imports only at module level; torch-bound modules (segmentation,
 # database.builder) are imported lazily inside the build/query stages.
 from localization.database.kdtree import SatelliteDatabase
+from localization.database.patches import patch_owns_centroid, vote_bucket_id
 from localization.geometry.descriptor import triangle_descriptors_from_polygon
 from localization.io.bounds import (
     latlon_to_pixel,
@@ -71,6 +72,9 @@ from localization.io.bounds import (
 )
 from localization.io.dataset import VisLocFlight, get_image_pose, load_flight_metadata
 from localization.matching.query import query_uav
+from localization.matching.refine import ransac_refine_position
+
+RANK_RECALL_THRESHOLDS = (1, 10, 50, 100)
 
 ALL_SITES = [f"{i:02d}" for i in range(1, 12)]
 RECALL_THRESHOLDS_M = (10.0, 20.0, 50.0)
@@ -81,6 +85,8 @@ RECORD_FIELDS = [
     "n_polygons", "n_descriptors", "k", "total_votes",
     "pred_patch_id", "pred_px_x", "pred_px_y", "pred_lat", "pred_lon",
     "gt_lat", "gt_lon", "gt_px_x", "gt_px_y", "error_m",
+    "refined_px_x", "refined_px_y", "refined_error_m",
+    "ransac_correspondences", "ransac_inliers", "ransac_refined",
     "votes", "second_votes", "margin",
     "gt_patch_id", "gt_patch_votes", "gt_patch_rank",
     "height", "date", "season", "alt_band",
@@ -95,17 +101,45 @@ class EvalConfig:
     patch_size: int = 500
     stride: int = 100
     score_threshold: float = 0.5
-    min_polygon_area: float = 50.0
+    # Raised from an earlier 50.0: lets through fewer tiny segmentation
+    # fragments that inflate the descriptor database without adding real
+    # discriminative signal (see max_vote_distance below).
+    min_polygon_area: float = 200.0
     tolerance_px: float = 2.0
     max_depth: int = 4          # D_max
     leaf_size: int = 40
     k: int = 5                  # K nearest neighbours
     top_n: int = 100
+    # Distance-gated voting: at full-site scale (millions of triangles), an
+    # ungated K=5 NN lets many coincidentally near-identical but wrong-building
+    # triangles vote (empirically confirmed: median global nearest-neighbour
+    # distance << median distance to the true corresponding patch). Rejecting
+    # matches beyond this ell_1 bound before they can vote is standard
+    # retrieval practice; None disables gating (paper's originally-described
+    # ungated K-NN).
+    max_vote_distance: Optional[float] = 60.0
+    # Dedup ownership-cell width (px, satellite frame): trades off eliminating
+    # patch-overlap redundancy against triangles-per-voting-bucket. stride
+    # (100) gives zero overlap but very few triangles/patch; patch_size (500)
+    # is equivalent to no dedup at all. 250 is a reasoned middle ground,
+    # empirically checked against the smoke/demo pipeline before paper runs.
+    dedup_cell_size: float = 250.0
+    # Coarse voting/position-output grid, independent of dedup_cell_size (see
+    # localization/database/patches.py::vote_bucket_id). Defaults to
+    # patch_size so one bucket approximates one UAV query's ground footprint.
+    vote_bucket_size: float = 500.0
     batch_size: int = 8
     sensitivity_limit: int = 100  # images/site for heading-noise & GSD sweeps
     ablation_k: Tuple[int, ...] = (1, 3, 10, 20)
     ablation_dmax: Tuple[int, ...] = (0, 1, 2, 8)
     seed: int = 42
+    # Step 6 - RANSAC sub-patch refinement (paper Sec. 5.7). Fixed by design
+    # (not tuned on held-out data): 15 px ~= 4.5 m at 0.3 m/px GSD, a
+    # generous-but-tight consensus window given segmentation noise; 3 is the
+    # minimum correspondence count below which a translation estimate isn't
+    # meaningfully constrained.
+    ransac_inlier_threshold_px: float = 15.0
+    ransac_min_correspondences: int = 3
 
 
 # --------------------------------------------------------------------------- paths
@@ -169,6 +203,23 @@ def compute_metrics(errors: Sequence[float]) -> dict:
     )
     for thr in RECALL_THRESHOLDS_M:
         out[f"recall_at_{int(thr)}m_pct"] = float(100.0 * (e <= thr).mean())
+    return out
+
+
+def compute_rank_recall(ranks: Sequence) -> dict:
+    """Recall@{1,10,50,100} by the GT patch's plurality-vote rank (paper tab:retrieval).
+
+    Unlike Recall@Nm, this is immune to the patch-grid quantization floor: it
+    only asks whether the GT patch was highly ranked by the vote, not whether
+    the reported *position* lands within N meters of GT (blank/unranked GT
+    patches, i.e. zero votes, count as a miss at every threshold, matching
+    how ``gt_in_top100_pct`` already treats them).
+    """
+    r = pd.to_numeric(pd.Series(list(ranks)), errors="coerce")
+    n = int(r.shape[0])
+    out = {"count": n}
+    for thr in RANK_RECALL_THRESHOLDS:
+        out[f"recall_at_rank{thr}_pct"] = float(100.0 * (r <= thr).sum() / n) if n else None
     return out
 
 
@@ -312,6 +363,8 @@ def stage_build(args, cfg: EvalConfig) -> None:
                 tolerance_px=cfg.tolerance_px,
                 max_depth=cfg.max_depth,
                 batch_size=cfg.batch_size,
+                dedup_cell_size=cfg.dedup_cell_size,
+                vote_bucket_size=cfg.vote_bucket_size,
                 output_csv=str(sp.desc_csv),
                 polygon_sink=sink,
                 max_patches=args.limit_patches,
@@ -431,7 +484,7 @@ def stage_query(args, cfg: EvalConfig) -> None:
             t_seg = time.perf_counter() - t1
 
             t2 = time.perf_counter()
-            desc, _cent = polygons_to_descriptors(polygons, max_depth=cfg.max_depth)
+            desc, cent = polygons_to_descriptors(polygons, max_depth=cfg.max_depth)
             t_desc = time.perf_counter() - t2
 
             if variant == "main":
@@ -464,7 +517,7 @@ def stage_query(args, cfg: EvalConfig) -> None:
                 continue
 
             t3 = time.perf_counter()
-            result = query_uav(desc, db, k=cfg.k, top_n=cfg.top_n)
+            result = query_uav(desc, db, k=cfg.k, top_n=cfg.top_n, max_vote_distance=cfg.max_vote_distance)
             t_query = time.perf_counter() - t3
             row.update(t_query=round(t_query, 4), t_total=round(t_pre + t_seg + t_desc + t_query, 4))
             if result is None:
@@ -485,6 +538,28 @@ def stage_query(args, cfg: EvalConfig) -> None:
             )
             if gt_xy is not None and bounds is not None:
                 row["error_m"] = round(error_meters(result.pixel_xy, gt_xy, bounds, sat_w, sat_h), 2)
+
+            # Step 6 - RANSAC sub-patch refinement (paper Sec. 5.7): falls back
+            # to the coarse patch centroid (result.pixel_xy) unchanged when
+            # too few correspondences land in the winning patch.
+            refine = ransac_refine_position(
+                uav_centroids=cent,
+                nearest_indices=result.nearest_indices,
+                db=db,
+                winner_code=result.winner_code,
+                uav_reference_xy=(cfg.patch_size / 2.0, cfg.patch_size / 2.0),
+                coarse_pixel_xy=result.pixel_xy,
+                inlier_threshold_px=cfg.ransac_inlier_threshold_px,
+                min_correspondences=cfg.ransac_min_correspondences,
+            )
+            row.update(
+                refined_px_x=round(refine.pixel_xy[0], 1), refined_px_y=round(refine.pixel_xy[1], 1),
+                ransac_correspondences=refine.n_correspondences, ransac_inliers=refine.n_inliers,
+                ransac_refined=int(refine.refined),
+            )
+            if gt_xy is not None and bounds is not None:
+                row["refined_error_m"] = round(error_meters(refine.pixel_xy, gt_xy, bounds, sat_w, sat_h), 2)
+
             append_record(rec_csv, row)
 
             if variant == "main" and n_examples_left > 0 and gt_xy is not None:
@@ -570,6 +645,7 @@ def _requery_errors(
     weighted: bool = False,
     top1: bool = False,
     desc_cols: Optional[Sequence[int]] = None,
+    max_vote_distance: Optional[float] = None,
 ) -> List[float]:
     errors: List[float] = []
     for image, desc in uav_map.items():
@@ -583,7 +659,7 @@ def _requery_errors(
             code = int(db.patch_id_codes[j])
             pred_xy = db.patch_centroids[code]
         else:
-            res = query_uav(d, db, k=int(k), top_n=0, p=p, weighted=weighted)
+            res = query_uav(d, db, k=int(k), top_n=0, p=p, weighted=weighted, max_vote_distance=max_vote_distance)
             if res is None:
                 continue
             pred_xy = res.pixel_xy
@@ -591,20 +667,37 @@ def _requery_errors(
     return errors
 
 
-def _sat_arrays_from_polygon_cache(sp: SitePaths, max_depth: int):
-    """Recompute the satellite descriptor arrays from the cached polygons (CPU)."""
+def _sat_arrays_from_polygon_cache(
+    sp: SitePaths,
+    max_depth: int,
+    patch_size: int = 500,
+    stride: int = 100,
+    dedup_cell_size: Optional[float] = None,
+    vote_bucket_size: Optional[float] = None,
+):
+    """Recompute the satellite descriptor arrays from the cached polygons (CPU).
+
+    Applies the same nearest-patch-center deduplication (patch_owns_centroid)
+    and coarse vote-bucket relabeling (vote_bucket_id) as the main build, so
+    ablation recomputation matches the main run's patch-identity semantics
+    instead of the raw 80%-overlapping sliding-window patches.
+    """
+    bucket_size = float(vote_bucket_size) if vote_bucket_size is not None else float(patch_size)
     descs, cents, pids = [], [], []
     with gzip.open(sp.sat_polys, "rt", encoding="utf-8") as f:
         for line in f:
             rec = json.loads(line)
-            d, c = polygons_to_descriptors(
-                rec["polygons"], max_depth=max_depth, offset_xy=(rec["tl"][0], rec["tl"][1])
-            )
+            tl = (rec["tl"][0], rec["tl"][1])
+            d, c = polygons_to_descriptors(rec["polygons"], max_depth=max_depth, offset_xy=tl)
+            if d.shape[0] == 0:
+                continue
+            keep = np.array([patch_owns_centroid(cc, tl, patch_size, stride, cell_size=dedup_cell_size) for cc in c])
+            d, c = d[keep], c[keep]
             if d.shape[0] == 0:
                 continue
             descs.append(d)
             cents.append(c)
-            pids.extend([rec["patch_id"]] * d.shape[0])
+            pids.extend([vote_bucket_id(cc, bucket_size) for cc in c])
     if not descs:
         return (np.zeros((0, 5), np.float32), np.zeros((0, 2), np.float32), np.zeros(0, object))
     return np.vstack(descs), np.vstack(cents), np.asarray(pids, dtype=object)
@@ -644,7 +737,7 @@ def stage_ablate(args, cfg: EvalConfig) -> None:
             print(f"[ablate] {site}: no cached UAV descriptors, skipping")
             continue
         db5 = SatelliteDatabase(sat_desc, sat_cent, sat_pids, leaf_size=cfg.leaf_size)
-        q = dict(gt_map=gt_map, bounds=bounds, sat_w=sat_w, sat_h=sat_h)
+        q = dict(gt_map=gt_map, bounds=bounds, sat_w=sat_w, sat_h=sat_h, max_vote_distance=cfg.max_vote_distance)
 
         # Matching/voting ablations (reuse main descriptors).
         for k in cfg.ablation_k:
@@ -663,7 +756,10 @@ def stage_ablate(args, cfg: EvalConfig) -> None:
         if not args.skip_dmax:
             for dmax in cfg.ablation_dmax:
                 t0 = time.perf_counter()
-                sd, sc, pid = _sat_arrays_from_polygon_cache(sp, max_depth=dmax)
+                sd, sc, pid = _sat_arrays_from_polygon_cache(
+                    sp, max_depth=dmax, patch_size=cfg.patch_size, stride=cfg.stride,
+                    dedup_cell_size=cfg.dedup_cell_size, vote_bucket_size=cfg.vote_bucket_size,
+                )
                 um = _uav_map_from_polygon_cache(sp, uav_map.keys(), max_depth=dmax)
                 if sd.shape[0] == 0 or not um:
                     continue
@@ -725,19 +821,24 @@ def stage_report(args, cfg: EvalConfig) -> None:
         "coverage_pct": float(100.0 * (main["n_descriptors"] > 0).mean()),
         "avg_descriptors_per_query": float(main["n_descriptors"].mean()),
     }
-    report["main"] = compute_metrics(ok["error_m"]) | {
+    # "Ours" headline numbers are post-refinement (Step 6, Sec. 5.7); the
+    # pre-refinement coarse patch-centroid numbers are kept separately so the
+    # ablation table can quantify the refinement's own contribution.
+    report["main"] = compute_metrics(ok["refined_error_m"]) | {
         "runtime_total_s_mean": float(ok["t_total"].mean()),
         "runtime_query_s_mean": float(ok["t_query"].mean()),
         "runtime_segment_s_mean": float(ok["t_segment"].mean()),
     }
+    report["coarse_no_refine"] = compute_metrics(ok["error_m"])
+    report["rank_recall"] = compute_rank_recall(ok["gt_patch_rank"])
 
     report["per_site"] = {
-        site: compute_metrics(g["error_m"]) | {"avg_M": float(g["n_descriptors"].mean())}
+        site: compute_metrics(g["refined_error_m"]) | {"avg_M": float(g["n_descriptors"].mean())}
         for site, g in ok.groupby("site")
     }
-    report["season"] = {s: compute_metrics(g["error_m"]) for s, g in ok.groupby("season")}
+    report["season"] = {s: compute_metrics(g["refined_error_m"]) for s, g in ok.groupby("season")}
     report["altitude"] = {
-        b: compute_metrics(g["error_m"]) | {"avg_M": float(g["n_descriptors"].mean())}
+        b: compute_metrics(g["refined_error_m"]) | {"avg_M": float(g["n_descriptors"].mean())}
         for b, g in ok.groupby("alt_band")
     }
     report["vote_diagnostics_per_site"] = {
@@ -895,15 +996,26 @@ def _write_tables_tex(path: Path, rep: dict) -> None:
 
     abl = rep.get("ablation", {})
     if abl:
+        coarse = rep.get("coarse_no_refine", {})
         L.append("")
         L.append("% --- Table tab:ablation (Mean / R@20m) ---")
         for variant, vm in abl.items():
             o = vm.get("overall", {})
             L.append(f"{_ablation_label(variant)} & {_fmt(o.get('mean_m'))} & "
                      f"{_fmt(o.get('recall_at_20m_pct'))} \\\\")
-        L.append(rf"\textbf{{Full 5-D CDT, $\ell_1$, $D_{{\max}}=4$, $K=5$}} & "
+        L.append(f"Coarse patch centroid (no sub-patch refinement) & {_fmt(coarse.get('mean_m'))} & "
+                 f"{_fmt(coarse.get('recall_at_20m_pct'))} \\\\  % pre-Step-6, from main run")
+        L.append(rf"\textbf{{Full 5-D CDT, $\ell_1$, $D_{{\max}}=4$, $K=5$, + RANSAC refine}} & "
                  rf"\textbf{{{_fmt(m.get('mean_m'))}}} & "
                  rf"\textbf{{{_fmt(m.get('recall_at_20m_pct'))}}} \\  % from main run")
+
+    rr = rep.get("rank_recall", {})
+    if rr:
+        L.append("")
+        L.append("% --- Table tab:retrieval (rank-based Recall@N; immune to grid quantization) ---")
+        for thr in (1, 10, 50, 100):
+            L.append(f"Recall@{thr} (vote rank) & {_fmt(rr.get(f'recall_at_rank{thr}_pct'))} \\\\")
+        L.append(f"% n={rr.get('count')} covered queries")
 
     sens = {k: v for k, v in rep.get("variants", {}).items() if k != "no_heading"}
     if sens:
@@ -1187,7 +1299,7 @@ def run_smoke(args, cfg: EvalConfig) -> int:
         jittered = [[[px + rng.normal(0, 0.8), py + rng.normal(0, 0.8)] for px, py in poly] for poly in polys]
         name = f"synthetic_q{qi:02d}.JPG"
         t0 = time.perf_counter()
-        desc, _ = polygons_to_descriptors(jittered, max_depth=cfg.max_depth)
+        desc, cent = polygons_to_descriptors(jittered, max_depth=cfg.max_depth)
         t_desc = time.perf_counter() - t0
         with open(sp.uav_polys_dir / f"{Path(name).stem}.json", "w", encoding="utf-8") as f:
             json.dump({"image": name, "polygons": jittered}, f)
@@ -1202,6 +1314,14 @@ def run_smoke(args, cfg: EvalConfig) -> int:
         gt_pid, gt_votes, gt_rank = gt_patch_diagnostics(result, gt_xy, patch_ids, patch_centers)
         gt_lat, gt_lon = pixel_to_latlon(gt_xy[0], gt_xy[1], bounds, map_w, map_h)
         height = float(rng.choice([450, 800, 1500]))
+        refine = ransac_refine_position(
+            uav_centroids=cent, nearest_indices=result.nearest_indices, db=db,
+            winner_code=result.winner_code, uav_reference_xy=(patch / 2.0, patch / 2.0),
+            coarse_pixel_xy=result.pixel_xy,
+            inlier_threshold_px=cfg.ransac_inlier_threshold_px,
+            min_correspondences=cfg.ransac_min_correspondences,
+        )
+        refined_err = error_meters(refine.pixel_xy, gt_xy, bounds, map_w, map_h)
         append_record(sp.records_csv("main"), {
             "site": site, "image": name, "variant": "main",
             "n_polygons": len(jittered), "n_descriptors": int(desc.shape[0]), "k": cfg.k,
@@ -1210,6 +1330,10 @@ def run_smoke(args, cfg: EvalConfig) -> int:
             "pred_px_x": round(result.pixel_xy[0], 1), "pred_px_y": round(result.pixel_xy[1], 1),
             "gt_lat": gt_lat, "gt_lon": gt_lon, "gt_px_x": gt_xy[0], "gt_px_y": gt_xy[1],
             "error_m": round(err, 2), "votes": result.vote_count,
+            "refined_px_x": round(refine.pixel_xy[0], 1), "refined_px_y": round(refine.pixel_xy[1], 1),
+            "refined_error_m": round(refined_err, 2),
+            "ransac_correspondences": refine.n_correspondences, "ransac_inliers": refine.n_inliers,
+            "ransac_refined": int(refine.refined),
             "second_votes": result.second_place_votes, "margin": result.margin,
             "gt_patch_id": gt_pid, "gt_patch_votes": gt_votes, "gt_patch_rank": gt_rank,
             "height": height, "date": seasons[qi % 2], "season": season_of(seasons[qi % 2]),
@@ -1223,6 +1347,7 @@ def run_smoke(args, cfg: EvalConfig) -> int:
     nh = main_df.copy()
     nh["variant"] = "no_heading"
     nh["error_m"] = nh["error_m"] * 3.0  # degraded, as expected without yaw alignment
+    nh["refined_error_m"] = nh["refined_error_m"] * 3.0
     nh.to_csv(sp.records_csv("no_heading"), index=False)
     print(f"[smoke] 10 synthetic queries: rank-1 patch correct for {n_hit}/10")
 

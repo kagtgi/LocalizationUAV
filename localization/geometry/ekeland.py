@@ -6,9 +6,10 @@ vertices via the closed-form equivalent of the axis-parallel reflection:
 
     e_X = min(360 deg - alpha_int(X), 180 deg)
 
-This is the reduction stated in Definition 1 of the paper: the axis-parallel
-reflection is the geometric construction, but it simplifies to this O(1)
-formula on the interior angle of P_sub at X.
+This is the closed form of Definition 2 in the paper: the axis-parallel
+reflection is an equivalent geometric reading (see the Remark after
+Definition 2), but the value itself depends only on alpha_int(X), so this
+O(1) formula is what is actually computed.
 """
 
 from __future__ import annotations

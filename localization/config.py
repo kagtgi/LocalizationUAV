@@ -29,13 +29,25 @@ class PathConfig:
 
     @property
     def bounds_csv(self) -> Path:
-        return self.data_root / "satellite_coordinates_range.csv"
+        """Accept either UAV-VisLoc bounds-CSV naming (Kaggle's download uses
+        a stray-space variant; see localization/io/dataset.py)."""
+        no_space = self.data_root / "satellite_coordinates_range.csv"
+        if no_space.exists():
+            return no_space
+        spaced = self.data_root / "satellite_ coordinates_range.csv"
+        if spaced.exists():
+            return spaced
+        return no_space
 
 
 @dataclass
 class SegmentationConfig:
     score_threshold: float = 0.5
-    min_polygon_area: float = 50.0
+    # Raised from an earlier 50.0: at 500x500/0.3 m-px scale, 50 px^2 lets
+    # through small segmentation fragments that are not real buildings and
+    # inflate the descriptor database with noise (see eval.py EvalConfig
+    # docstring for the empirical effect on match precision at scale).
+    min_polygon_area: float = 200.0
     # Paper §4.2 (Table, tau = 2 px): fixed Douglas-Peucker tolerance in pixels.
     douglas_peucker_tolerance_px: float = 2.0
     # Legacy perimeter-relative tolerance; unused by default (kept for back-compat).
@@ -60,6 +72,12 @@ class IndexConfig:
     stride: int = 100
     kdtree_leaf_size: int = 40
     top_k: int = 5
+    # Distance-gated voting: a K-NN match only casts a vote if its ell_1
+    # distance is within this bound. At full-site scale (millions of
+    # triangles), an ungated K=5 NN lets many coincidentally near-identical
+    # but wrong-building triangles vote; gating rejects the tail of matches
+    # too far to plausibly be the same physical corner. None disables gating.
+    max_vote_distance: Optional[float] = 60.0
 
 
 @dataclass

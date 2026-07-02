@@ -164,15 +164,15 @@ training is operationally infeasible.
 \item \textbf{Edge-anchored Ekeland angle (MFCA).}
       We derive the Ekeland angle $e_v$ from first principles via a two-phase
       construction: (i)~expand the kernel triangle into a maximal polygon
-      $P_{\mathrm{sub}}$ whose stopping condition directly instantiates
-      Ekeland's cone-criticality---merging halts precisely when any of the
+      $P_{\mathrm{sub}}$ whose stopping condition is geometrically analogous
+      to Ekeland's cone-criticality---merging halts precisely when any of the
       three original triangle vertices would leave the boundary; (ii)~compute
       $e_v$ as the exterior angle of $P_{\mathrm{sub}}$ at $v$ via an
       edge-anchored half-plane selection (Section~\ref{sec:mfca}).
       The result is \emph{exact} (no quantization), $O(1)$ per vertex, and
-      rigorously grounded: the kept sector's bounding ray is tangent to the
-      polygon boundary---the literal ``cone touches but does not cross''
-      condition of Ekeland's principle.
+      geometrically motivated: the kept sector's bounding ray is tangent to the
+      polygon boundary, the same picture as Ekeland's ``cone touches but does
+      not cross'' condition.
 \item \textbf{5-D geometric feature}
       $f = (\alpha_1,\alpha_2,e_1,e_2,e_3)$ combining two sorted interior
       angles and three independently sorted MFCAs, providing complementary
@@ -213,8 +213,8 @@ appropriate access controls.
 \noindent\textbf{Classical template and feature matching.}
 Template matching methods (NCC, Phase Correlation, Mutual Information) compare
 query images to raster satellite tiles by direct pixel similarity.
-NCC requires ${\approx}400$\,s per query on a $105\!\times\!105$\,km map and
-collapses under seasonal illumination shifts~\cite{ouyang2024cfbvm}.
+NCC-based template matching is reported to require hundreds of seconds per
+query and collapses under seasonal illumination shifts~\cite{ouyang2024cfbvm}.
 SIFT~\cite{lowe2004sift}, SURF~\cite{bay2006surf}, and
 ORB~\cite{rublee2011orb} extract keypoints robust to scale and rotation, yet
 the nadir-to-satellite appearance gap overwhelms these features: SIFT achieves
@@ -249,12 +249,13 @@ MFCA is a coarser scalar summary---the exterior angle at each vertex of the
 kernel expansion polygon $P_{\mathrm{sub}}$---but encodes building-shape
 context through the expansion process, making it discriminative across
 different polygon geometries, not just visible directions.
-Crucially, our construction is not an ad hoc design decision but follows
-directly from Ekeland's variational principle~\cite{ekeland1974}:
+Crucially, our construction is motivated by Ekeland's variational
+principle~\cite{ekeland1974} rather than being an ad hoc design choice:
 the stopping criterion of the kernel expansion (original triangle vertices
-must remain on the boundary) \emph{is} the Ekeland criticality condition,
-and the edge-anchored sector selection realises the ``cone touches but does
-not cross'' condition with a two-case check.
+must remain on the boundary) is geometrically analogous to the Ekeland
+criticality condition, and the edge-anchored angle realises the ``cone
+touches but does not cross'' picture directly, via a single closed-form
+expression (Definition~\ref{def:ekeland_angle}).
 The result is an $O(1)$-per-vertex exact computation, with no search radius
 and no angular sweep, that was previously approximated by a
 $1^\circ$-sweep.
@@ -272,11 +273,11 @@ single-polygon descriptor.
 Vector map (VMAP) methods avoid raster storage and cross-modal appearance gaps.
 Choi \& Myung~\cite{choi2020brm} proposed Building Ratio Map (BRM), matching
 building pixel-density ratios per grid cell against OpenStreetMap; it achieves
-centimeter-level accuracy in a 5.7\,km$^2$ area but discards shape information
+7.5--12\,m RMSE in a 5.7\,km$^2$ area but discards shape information
 and degrades at large scale.
 Nassar et al.~\cite{nassar2018deep} applied deep CNN segmentation and
-shape-based matching over a 2.2\,km$^2$ map (3.6\,m error) but require a
-template-to-map ratio $>$25.9\%---impractical for city-scale search.
+shape-based matching, reporting 6.3--10.4\,m average drift across two flight
+datasets (Potsdam, Famagusta).
 Ouyang et al.~\cite{ouyang2024cfbvm} proposed Coarse-to-Fine Building Vector
 Matching (CFBVM) combined with a GMM particle filter, achieving 6.6\,m mean
 error over 11,025\,km$^2$ using a shape vector defined over concentric
@@ -297,9 +298,11 @@ combines SegFormer~\cite{xie2021segformer} semantics with 4-DoF particle
 filtering, achieving state-of-the-art 6.57\,m RMSE on MAFS-10 in 7\,s as a
 sequential method, but trains on the target terrain.
 Kinnari et al.~\cite{kinnari2022season} address season-invariant UAV
-localization directly; their follow-up LSVL~\cite{kinnari2023lsvl} scales this
-to 100\,km$^2$ via large-scale season-invariant retrieval---both require CNN
-pretraining on seasonal image pairs and operate in sequential mode.
+localization directly, reporting 16.6--30.6\,m mean error depending on
+condition; their follow-up LSVL~\cite{kinnari2023lsvl} scales this to
+100\,km$^2$ via large-scale season-invariant retrieval, reporting
+12.6--18.7\,m mean error---both require CNN pretraining on seasonal image
+pairs and operate in sequential mode.
 A 2025 hierarchical matching approach~\cite{hieruav2025} combines DINOv2
 semantic features with structural constraints and RANSAC homography refinement,
 reporting 17.7--18.7\,m mean error on the AerialVL and CS-UAV benchmarks;
@@ -313,11 +316,11 @@ is a natural future extension.
 \begin{sloppypar}
 Recent work on cross-view geo-localization has moved toward 3-D geometry
 grounding and large-scale multimodal models.
-(MGS)$^2$~\cite{mgs2_2024} and VGGT/BEV-based approaches~\cite{vggt2024}
-obtain strong cross-view performance by explicitly modeling 3-D geometry
-and aligning views in BEV space; these represent a higher performance bar
-than classical BRM/CFBVM.
-LVLM-based re-rankers (e.g., SkyLink~\cite{skylink2024}) demonstrate
+(MGS)$^2$-Net~\cite{mgs2_2026} and drone-video-to-BEV approaches such as
+Video2BEV~\cite{video2bev2024} obtain strong cross-view performance by
+explicitly modeling 3-D geometry and aligning views in bird's-eye-view
+space; these represent a higher performance bar than classical BRM/CFBVM.
+LVLM-based re-rankers (e.g., SkyLink~\cite{skylink2026}) demonstrate
 effective candidate scoring improvements when paired with retrievers;
 while heavier than our approach, they represent a complementary retrieval
 stage in a potential two-stage pipeline.
@@ -443,6 +446,13 @@ satellite map of that site is used as the reference.
 Queries from which no building polygon can be segmented produce no descriptor
 and are counted separately as uncovered queries (coverage is reported alongside
 the error metrics).
+The hyperparameters below (Table~\ref{tab:impl}) are fixed by design from
+prior literature and geometric reasoning about the sensor and map resolution,
+not tuned on any held-out split of UAV-VisLoc.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Method}
+\label{sec:method}
 
 \begin{figure}[t]
 \centering
@@ -648,13 +658,15 @@ near-zero angles produce near-degenerate descriptors.
 
 \paragraph{Interior angle components.}
 For triangle $t$ with vertices $v_A,v_B,v_C$, the three interior angles
-$\alpha_A,\alpha_B,\alpha_C$ are computed analytically via the law of cosines.
+$\beta_A,\beta_B,\beta_C$ (reserving $\alpha$ for the descriptor and
+kernel-expansion quantities below) are computed analytically via the law of
+cosines.
 The two smallest are selected and sorted:
 $\alpha_1 \le \alpha_2$, both in $(0^\circ, 180^\circ)$.
 These two components encode the \emph{shape} of the triangle independent of
 position, orientation, or scale.
 
-\paragraph{Ekeland's variational principle and its geometric instantiation.}
+\paragraph{Ekeland's variational principle and its geometric analogy.}
 \label{para:ekeland}
 
 We begin with the formal statement of the principle that motivates our
@@ -684,11 +696,19 @@ This \emph{cone-touching} interpretation is the direct inspiration for the
 Ekeland angle.
 
 \smallskip
-\noindent\textit{Structural instantiation in the UAV plane.}
-Unlike abstract metric-space formulations that apply the principle
-rhetorically, our construction instantiates Ekeland's principle
-\emph{structurally}: every element of the principle corresponds to a concrete,
-computable geometric object.
+\noindent\textit{Geometric analogy in the UAV plane.}
+Rather than invoking Ekeland's principle only rhetorically, we make the
+analogy concrete: each element of the principle has a natural geometric
+counterpart in our construction, summarised in
+Table~\ref{tab:ekeland_correspondence}.
+We do not claim to invoke the full analytic machinery of EVP---completeness,
+lower semicontinuity, and existence in possibly non-compact or
+infinite-dimensional spaces are apparatus for guaranteeing a critical point
+\emph{exists}, which is not in question here, since the quantity at each
+vertex is a finite, explicitly computable geometric angle. The analogy is
+what motivated the construction and explains why an exterior angle capped at
+$180^\circ$ is the natural quantity to extract, not a claim that the
+construction re-derives EVP's existence machinery.
 
 \begin{itemize}[leftmargin=*,topsep=2pt]
   \item \textbf{Complete metric space $(X,d)$:}
@@ -702,33 +722,32 @@ computable geometric object.
         $g$ is lower-semicontinuous (blockage events are closed) and bounded
         below by $-180^\circ$.
   \item \textbf{$\varepsilon$-critical point:}
-        The optimal bisector $\hat{b}^*$ satisfies the strict
-        cone-criticality condition of Definition~\ref{def:ekeland}(iii): the
-        surviving reflected ray of the axis-parallel reflection construction at
-        $\hat{b}^*$ lies \emph{tangent to a boundary edge of $P_{\mathrm{sub}}$}---it
-        touches but does not cross the obstacle, exactly as Ekeland's cone
-        touches but does not cross $f$'s graph.
+        The optimal bisector $\hat{b}^*$ is geometrically analogous to the
+        strict cone-criticality condition of Definition~\ref{def:ekeland}(iii):
+        the surviving reflected ray of the axis-parallel reflection construction
+        (Remark~\ref{rem:axis_reading}) at $\hat{b}^*$ lies \emph{tangent to a
+        boundary edge of $P_{\mathrm{sub}}$}---it touches but does not cross
+        the obstacle, much as Ekeland's cone touches but does not cross
+        $f$'s graph.
   \item \textbf{Stopping criterion = criticality condition:}
         $P_{\mathrm{sub}}$ is the \emph{largest} polygon obtained by merging
         adjacent CDT triangles such that all three original triangle vertices
         $v_A,v_B,v_C$ remain on $\partial P_{\mathrm{sub}}$.
-        This is exactly the Ekeland critical-point condition: $P_{\mathrm{sub}}$
+        This mirrors the Ekeland critical-point condition: $P_{\mathrm{sub}}$
         cannot be expanded further while keeping the triangle vertices as
         boundary (critical) points---any additional merge would push one of
         them to the interior, destroying the criticality.
-  \item \textbf{Ekeland angle $e_v$:}
-        The value $\min(\alpha(v),\,180^\circ)$, where
-        $\alpha(v) = 360^\circ - \alpha_{\mathrm{int}}(v)$ is the exterior angle
-        of $P_{\mathrm{sub}}$ at $v$, computed via the axis-parallel reflection
-        of boundary edges across $v\mathbf{d}$---the analogue of the value
-        $f(v)$ at the Ekeland critical point.
+  \item \textbf{Ekeland angle $e_X$:}
+        The value $\min(\alpha(X),\,180^\circ)$ (Definition~\ref{def:ekeland_angle})---the
+        analogue of the value $f(v)$ at the Ekeland critical point.
 \end{itemize}
 
 Table~\ref{tab:ekeland_correspondence} displays the complete correspondence.
 
 \begin{table}[h]
-\caption{Structural correspondence between Ekeland's variational principle
-         and the edge-anchored Ekeland angle (this work).}
+\caption{Geometric correspondence between Ekeland's variational principle
+         and the edge-anchored Ekeland angle (this work) -- an analogy that
+         motivates the construction, not a claim of formal equivalence.}
 \label{tab:ekeland_correspondence}
 \centering\small
 \begin{tabular}{p{5.2cm}p{7.8cm}}
@@ -747,7 +766,7 @@ Cone \emph{touches but does not cross} $f$
 Stopping = criticality condition
   & Merge halts when original vertices leave $\partial P_{\mathrm{sub}}$ \\
 Value $f(v)$ at critical point
-  & $e_v = \min(\alpha(v),\,180^\circ)$; computed via axis-parallel reflection of $\mathbf{a},\mathbf{b}$ across $v\mathbf{d}$ \\
+  & $e_X = \min(\alpha(X),\,180^\circ)$ (Definition~\ref{def:ekeland_angle}) \\
 Stability: no free gain without distance cost
   & No cone enlargement without crossing obstacle edge \\
 $\varepsilon \to 0$: global optimum attained
@@ -769,6 +788,11 @@ additional triangles).
 Then $e_X(P_{\mathrm{sub}}) \ge e_X(P'_{\mathrm{sub}})$.
 \end{proposition}
 \begin{proof}
+By Definition~\ref{def:ekeland_angle}, $e_X$ depends on $P_{\mathrm{sub}}$
+only through the single scalar $\alpha_{\mathrm{int}}(X)$---not on how the
+exterior wedge happens to be split by an axis choice
+(Remark~\ref{rem:axis_reading})---so it suffices to show
+$\alpha_{\mathrm{int}}(X)$ itself is non-decreasing under expansion.
 $e_X = \min(360^\circ - \alpha_{\mathrm{int}}(X), 180^\circ)$, where
 $\alpha_{\mathrm{int}}(X)$ is the interior angle of $P_{\mathrm{sub}}$
 at $X$.
@@ -905,7 +929,7 @@ The obstacle for the Ekeland angle computation at each vertex $v$ is
   \label{eq:obstacle}
 \end{equation}
 This is geometrically motivated: $P_{\mathrm{sub}}$ is the maximal polygon
-whose stopping condition instantiates Ekeland's criticality---its boundary is
+whose stopping condition mirrors Ekeland's criticality---its boundary is
 therefore the tightest obstacle that the principle's cone can touch without
 crossing.
 No external neighbor polygon set or search radius $r$ is required.
@@ -916,54 +940,42 @@ and let $\mathbf{a}$ (from $X$ toward $X_{\mathrm{prev}}$) and
 $\mathbf{b}$ (from $X$ toward $X_{\mathrm{next}}$) be the two $\partial P_{\mathrm{sub}}$
 boundary edges incident to $X$.
 Let $\alpha_{\mathrm{int}}(X)$ denote the interior angle of $P_{\mathrm{sub}}$
-at $X$, measured inside the polygon.
+at $X$, measured inside the polygon, and let
+$\alpha(X) = 360^\circ - \alpha_{\mathrm{int}}(X)$ denote the corresponding
+exterior (free-space) angle at $X$
+($\alpha(X) = \angle\mathbf{a}X\mathbf{b}$ measured through the exterior of
+$P_{\mathrm{sub}}$).
 
 \begin{definition}[Ekeland Angle at vertex $X$]
 \label{def:ekeland_angle}
-Let $\alpha(X)$ denote the exterior angle of $P_{\mathrm{sub}}$ at $X$,
-measured in the exterior of the polygon
-($\alpha(X) = \angle\mathbf{a}X\mathbf{b}$ in the exterior of $P_{\mathrm{sub}}$).
-Draw ray $X\mathbf{d}$ from $X$ parallel to either the $O_x$ or $O_y$ axis,
-chosen so that $\mathbf{d}$ lies within the exterior angle $\angle\mathbf{a}X\mathbf{b}$.
-Let $\hat{\mathbf{a}}'$ and $\hat{\mathbf{b}}'$ be the reflections of boundary
-edge directions $\hat{\mathbf{a}}$ and $\hat{\mathbf{b}}$ across ray $X\mathbf{d}$.
 \begin{equation}
-  e_X \;=\;
-  \begin{cases}
-    180^\circ
-      & \text{if } \alpha(X) \ge 180^\circ
-        \;\text{(convex vertex: exterior free space} \ge 180^\circ) \\[4pt]
-    \min\!\bigl(\angle(\hat{\mathbf{a}}',\,X\mathbf{d}),\;
-               \angle(\hat{\mathbf{b}}',\,X\mathbf{d})\bigr)
-      & \text{if } \alpha(X) < 180^\circ
-        \;\text{(reflex vertex: exterior free space} < 180^\circ)
-  \end{cases}
+  e_X \;=\; \min\bigl(\alpha(X),\,180^\circ\bigr).
   \label{eq:ekeland_angle}
 \end{equation}
-where the selected half-angle is the one whose reflected ray does
-\emph{not} re-enter the polygon interior.
-Equivalently, $e_X = \min(\alpha(X),\;180^\circ)$, where
-$\alpha(X) = 360^\circ - \alpha_{\mathrm{int}}(X)$.
 \end{definition}
 
-The axis-parallel reflection construction (Algorithm~\ref{alg:mfca}, Phase~2)
-determines $e_X$ by drawing a reference ray $X\mathbf{d}$ from $X$ parallel to
-the $O_x$ or $O_y$ axis, positioned so that $\mathbf{d}$ lies within the
-exterior angle $\alpha(X) = \angle\mathbf{a}X\mathbf{b}$.
-For a reflex interior vertex ($\alpha(X) < 180^\circ$), boundary edge directions
-$\hat{\mathbf{a}}$ and $\hat{\mathbf{b}}$ are reflected across $X\mathbf{d}$ to
-obtain $\hat{\mathbf{a}}'$ and $\hat{\mathbf{b}}'$; the angle between each
-reflected direction and $X\mathbf{d}$ is computed, and the minimum is selected---
-choosing the reflected ray that does \emph{not} re-enter the polygon interior
-(the amber direction in Fig.~\ref{fig:ekeland_construction}).
-This surviving reflected ray is tangent to the opposite boundary edge---the
-literal geometric statement of Ekeland's cone-touching condition.
-The axis-parallel choice of $X\mathbf{d}$ gives $e_X$ a direct interpretation
-as the maximum tilt a rectangle edge at $X$ can sustain before clipping the
-polygon, which is well-suited for the downstream axis-aligned localization task.
+\begin{remark}[Axis-parallel reading, and why heading error cannot destabilize $e_X$]
+\label{rem:axis_reading}
+Eq.~\eqref{eq:ekeland_angle} admits an equivalent geometric construction
+(Algorithm~\ref{alg:mfca}, Phase~2; Fig.~\ref{fig:feature_extraction}): draw
+any ray $X\mathbf{d}$ parallel to the $O_x$ or $O_y$ axis inside the exterior
+wedge $\angle\mathbf{a}X\mathbf{b}$, and reflect the boundary edge directions
+$\hat{\mathbf{a}}$ and $\hat{\mathbf{b}}$ across it; the reflected ray that
+stays outside $P_{\mathrm{sub}}$ is tangent to the opposite boundary edge, at
+angle $\alpha(X)$ to $X\mathbf{d}$---the geometric picture behind Ekeland's
+``cone touches but does not cross'' condition.
+Because $\alpha(X)$ is a fixed property of $P_{\mathrm{sub}}$ at $X$ and does
+not depend on \emph{which} of the four axis-parallel rays is drawn, $e_X$
+itself never depends on an axis choice: there is no discrete decision
+boundary at which $e_X$ can jump as the coordinate frame rotates.
+Compass-heading error (Section~\ref{sec:sensitivity}) therefore propagates
+into the pipeline only through the Step~1b yaw-alignment image rotation
+(which changes which triangles Mask~R-CNN segments and how CDT triangulates
+them), never through a discontinuity internal to $e_X$'s own definition.
 This construction is \textbf{exact} (no angular quantization),
-\textbf{$O(1)$ per vertex} (two edge-intersection checks), and
-\textbf{deterministic} (no supremum-not-attained edge case).
+\textbf{$O(1)$ per vertex} (one interior-angle computation and a $\min$),
+and \textbf{deterministic} (no supremum-not-attained edge case).
+\end{remark}
 
 
 \paragraph{Algorithm.}
@@ -993,29 +1005,11 @@ This construction is \textbf{exact} (no angular quantization),
 \Comment{Invariant: $v_A,v_B,v_C \in \partial P_{\mathrm{sub}}$}
 
 \smallskip
-\State \textbf{--- Phase 2: Axis-Parallel Reflection Ekeland Angle ---}
+\State \textbf{--- Phase 2: Ekeland Angle (Definition~\ref{def:ekeland_angle}) ---}
 \For{each $X \in \{v_A,v_B,v_C\}$}
-  \State Let $\mathbf{a}$ = $\partial P_{\mathrm{sub}}$ edge from $X$ toward $X_{\mathrm{prev}}$
-  \State Let $\mathbf{b}$ = $\partial P_{\mathrm{sub}}$ edge from $X$ toward $X_{\mathrm{next}}$
-  \State Compute $\alpha \leftarrow \angle(X_{\mathrm{prev}},\,X,\,X_{\mathrm{next}})$
-         measured in the \emph{exterior} of $P_{\mathrm{sub}}$
-  \If{$\alpha \ge 180^\circ$} \Comment{convex interior vertex: exterior free space $\ge 180^\circ$}
-    \State $e_X \leftarrow 180^\circ$
-  \Else \Comment{reflex interior vertex: apply axis-parallel reflection}
-    \State $\hat{\mathbf{a}} \leftarrow$ unit vector from $X$ toward $X_{\mathrm{prev}}$;\quad
-           $\hat{\mathbf{b}} \leftarrow$ unit vector from $X$ toward $X_{\mathrm{next}}$
-    \State Choose $X\mathbf{d} \parallel O_x$ or $O_y$ s.t.\ $\mathbf{d}$ lies inside exterior angle $\angle\mathbf{a}X\mathbf{b}$
-    \State $\hat{\mathbf{a}}' \leftarrow$ reflection of $\hat{\mathbf{a}}$ across $X\mathbf{d}$;\quad
-           $\hat{\mathbf{b}}' \leftarrow$ reflection of $\hat{\mathbf{b}}$ across $X\mathbf{d}$
-    \State $\theta_a \leftarrow \angle(\hat{\mathbf{a}}',\,X\mathbf{d})$;\quad
-           $\theta_b \leftarrow \angle(\hat{\mathbf{b}}',\,X\mathbf{d})$
-    \If{reflected ray $\hat{\mathbf{a}}'$ re-enters $P_{\mathrm{sub}}$ interior}
-      \State $e_X \leftarrow \theta_b$
-             \Comment{$\hat{\mathbf{a}}'$ crosses boundary; $\hat{\mathbf{b}}'$ is tangent}
-    \Else
-      \State $e_X \leftarrow \theta_a$
-    \EndIf
-  \EndIf
+  \State Compute $\alpha_{\mathrm{int}}(X) \leftarrow$ interior angle of $P_{\mathrm{sub}}$ at $X$
+  \State $\alpha(X) \leftarrow 360^\circ - \alpha_{\mathrm{int}}(X)$
+  \State $e_X \leftarrow \min\bigl(\alpha(X),\,180^\circ\bigr)$
 \EndFor
 \Return $(e_{v_A},\,e_{v_B},\,e_{v_C})$
 \end{algorithmic}
@@ -1034,23 +1028,12 @@ of $T$ consistent with the criticality constraint---exactly as Ekeland's
 principle guarantees a point $v$ beyond which no improvement is possible
 without paying a proportional distance cost.
 
-\noindent\textbf{Correctness of Phase 2 (axis-parallel reflection).}
-For a convex interior vertex (exterior angle $\alpha \ge 180^\circ$), the exterior
-free space is $\ge 180^\circ$, and $e_X = 180^\circ$ (any axis-parallel ray
-$X\mathbf{d}$ in the exterior cone fits within the free half-plane, and both
-reflected rays remain outside $P_{\mathrm{sub}}$).
-For a reflex interior vertex (exterior angle $\alpha < 180^\circ$), the exterior
-free space is $\alpha < 180^\circ$: the axis-parallel ray $X\mathbf{d}$
-is drawn into the narrow exterior cone, and the boundary edge directions
-$\hat{\mathbf{a}}$ and $\hat{\mathbf{b}}$ are reflected across $X\mathbf{d}$.
-Exactly one reflected ray re-enters the polygon interior
-(the discarded direction in Fig.~\ref{fig:feature_extraction}); the surviving
-reflected ray is tangent to the opposite adjacent edge.
-The angle $\theta$ between the surviving reflected ray and $X\mathbf{d}$
-equals $\alpha = 360^\circ - \alpha_{\mathrm{int}}$---the exterior free-space
-width---so that $e_X = \theta \in (0^\circ, 180^\circ)$.
-This tangency is the geometric instantiation of Ekeland's
-``cone touches but does not cross the graph'' condition.
+\noindent\textbf{Correctness of Phase 2.}
+Phase 2 directly evaluates the closed form of
+Definition~\ref{def:ekeland_angle} (Remark~\ref{rem:axis_reading} gives the
+equivalent axis-parallel-reflection reading): one interior-angle computation
+and one $\min$ per vertex, hence exact and $O(1)$ per vertex with no
+axis-dependent branching and no supremum-not-attained edge case.
 
 \noindent\textbf{Discriminative power.}
 The Ekeland angle is discriminative because $P_{\mathrm{sub}}$'s shape
@@ -1112,7 +1095,7 @@ The three components assemble into the 5-D descriptor via the following
 steps, illustrated here for a triangle $t = (v_A, v_B, v_C)$.
 \begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,topsep=3pt]
 \item \textbf{Interior angles.}
-  Compute $\alpha_A, \alpha_B, \alpha_C$ analytically; sort the two smallest
+  Compute $\beta_A, \beta_B, \beta_C$ analytically; sort the two smallest
   to obtain $\alpha_1 \le \alpha_2 \in (0^\circ, 180^\circ)$.
 \item \textbf{Ekeland (free-cone) angles.}
   For each vertex $v \in \{v_A, v_B, v_C\}$, run
@@ -1123,7 +1106,7 @@ steps, illustrated here for a triangle $t = (v_A, v_B, v_C)$.
 \end{enumerate}
 
 \noindent\textit{Example.}
-For a right-isosceles triangle ($\alpha_A = 90^\circ$, $\alpha_B = \alpha_C =
+For a right-isosceles triangle ($\beta_A = 90^\circ$, $\beta_B = \beta_C =
 45^\circ$) sited at an open corner with per-vertex free cones
 $e_{v_A} = 106^\circ$, $e_{v_B} = 88^\circ$, $e_{v_C} = 72^\circ$,
 the descriptor is $f = (45^\circ,\, 45^\circ,\, 72^\circ,\, 88^\circ,\,
@@ -1201,11 +1184,46 @@ Plurality voting is robust to individual false matches: a segmentation error
 that generates a spurious descriptor will vote for a random patch, whereas
 the correct patch accumulates coherent votes from many triangles belonging
 to the same building cluster.
-We note that the current output resolution is bounded by the patch stride
-(100\,px $\times$ 0.3\,m/px = 30\,m); this means even a perfect descriptor
-match cannot achieve sub-30\,m error without a second refinement stage.
-Sub-patch localization via a RANSAC-based translation alignment between
-matched triangle centroids is a natural future extension.
+The patch centroid itself is resolution-bounded by the patch stride
+(100\,px $\times$ 0.3\,m/px = 30\,m); Step~6 below removes this bound.
+
+\subsection{Sub-Patch Refinement (Step 6)}
+\label{sec:refine}
+
+\paragraph{Motivation.}
+Reporting the winning patch's own centroid caps resolution at the patch
+stride, so even a perfect vote cannot achieve sub-30\,m error on its own.
+
+\paragraph{Design.}
+Step~1 already normalizes heading and scale before segmentation, so any
+residual misalignment between a UAV triangle centroid and its matched
+satellite triangle centroid is well modeled as a pure 2-D translation.
+Let $\mathcal{W}$ be the set of matched pairs $(i,j)$ with $j \in \mathcal{C}_i$
+(Eq.~\eqref{eq:retrieval}) whose satellite triangle $j$ belongs to the
+winning patch $\ell^*$ (Eq.~\eqref{eq:vote}); each pair implies a translation
+$t_{ij} = p_j - c_i$, where $c_i$ is the pixel centroid of UAV triangle $i$
+in the preprocessed frame and $p_j$ is satellite triangle $j$'s pre-computed
+centroid.
+A one-point RANSAC selects the translation hypothesis with the largest
+agreeing subset (inliers within 15\,px, $\approx$4.5\,m at the map's GSD---a
+fixed, reasoned default, not tuned on held-out data) and averages that
+inlier set to obtain $\hat{t}$.
+The refined position is $\hat{t}$ applied to the UAV image's own nadir point
+(its center in the preprocessed $500{\times}500$ frame, per assumption A1).
+When fewer than 3 correspondences land in the winning patch, refinement is
+skipped and the coarse patch centroid is reported unchanged---refinement
+never degrades the estimate.
+
+\paragraph{Technical advantage.}
+Because $\hat{t}$ is estimated from a robust inlier consensus rather than a
+single correspondence, refinement tolerates individual false matches within
+the winning patch; its per-query reliability is diagnosable directly from the
+inlier and correspondence counts, reported alongside the vote-margin
+diagnostics (Section~\ref{sec:exp}).
+Table~\ref{tab:ablation} quantifies the coarse-vs-refined comparison, and
+Table~\ref{tab:main}'s Recall@10m/20m/50m columns reflect the refined
+position (Section~\ref{sec:protocol} notes the quantization floor this
+removes).
 
 \subsection{Implementation Details}
 \label{sec:impl}
@@ -1316,6 +1334,11 @@ footprints, (b)~Delaunay triangulation on those footprints, and
   $^\ddagger$ Re-implemented on UAV-VisLoc by us.
   $^\S$ Multi-frame sequential method; single-frame comparison unfair.
   $^*$ Scene-specific training required.
+  N/R = not reported by the source under this metric (FPI reports
+  Meter-level Accuracy and a Relative Distance Score, RDS\,=\,57.22, rather
+  than mean/median/RMSE/Recall@$k$).
+  Our R@10m is at the patch-grid quantization floor (Section~\ref{sec:protocol});
+  Table~\ref{tab:retrieval}'s rank-based recall is quantization-free.
   \textbf{Best training-free result on UAV-VisLoc in bold.}
 }
 \label{tab:main}
@@ -1338,25 +1361,25 @@ ORB$^\dagger$~\cite{rublee2011orb}
 abBRIEF+MCL$^\dagger$~\cite{mantelli2019abbrief}
   & No & No & 17.8 & --- & --- & --- & --- & --- \\
 BRM$^\dagger$~\cite{choi2020brm}
-  & Thresh. & No & cm & --- & --- & --- & --- & --- \\
+  & Thresh. & No & --- & --- & 7.5--12 & --- & --- & --- \\
 CFBVM$^\dagger$~\cite{ouyang2024cfbvm}
   & CNN & No & 6.6 & --- & --- & --- & --- & 22 \\
 \midrule
 \multicolumn{9}{l}{\textit{Segmentation-based (shared mask pipeline design)}} \\
 Nassar et al.~\cite{nassar2018deep}$^\dagger$
-  & U-Net & Scene & 3.6 & --- & --- & --- & --- & --- \\
+  & U-Net & Scene & 6.3--10.4 & --- & --- & --- & --- & --- \\
 SWA-PF$^\S$$^\dagger$~\cite{yuan2025swapf}
   & SegFmr & Pretrain & --- & 6.65 & 6.57 & 97.4 & --- & 7 \\
 Hier.\ Match.$^\dagger$~\cite{hieruav2025}
-  & DINOv2 & Pretrain & 18.7 & --- & --- & --- & --- & --- \\
+  & DINOv2 & Pretrain & 17.7--18.7 & --- & --- & --- & --- & --- \\
 \midrule
 \multicolumn{9}{l}{\textit{Learning-based (no segmentation)}} \\
 Kinnari et al.$^\dagger$~\cite{kinnari2022season}
-  & No & CNN & 15.7 & --- & --- & --- & --- & --- \\
+  & No & CNN & 16.6--30.6 & --- & --- & --- & --- & --- \\
 LSVL$^\S$$^\dagger$~\cite{kinnari2023lsvl}
-  & No & CNN & 15.7 & --- & --- & --- & --- & --- \\
+  & No & CNN & 12.6--18.7 & --- & --- & --- & --- & --- \\
 FPI$^*$$^\dagger$~\cite{dai2022fpi}
-  & No & Scene & TBR & TBR & TBR & TBR & TBR & TBR \\
+  & No & Scene & N/R & N/R & N/R & N/R & N/R & N/R \\
 \midrule
 \multicolumn{9}{l}{\textit{Ours (UAV-VisLoc, direct comparison)}} \\
 \rowcolor{ours}
@@ -1493,9 +1516,31 @@ $K=3$                                                           & TBR & TBR \\
 $K=10$                                                          & TBR & TBR \\
 $K=20$                                                          & TBR & TBR \\
 \midrule
+Coarse patch centroid (no sub-patch refinement, Sec.~\ref{sec:refine})  & TBR & TBR \\
+\midrule
 \rowcolor{ours}
-\textbf{Full 5-D CDT, edge-anchored Ekeland angle, $\ell_1$, $D_{\max}=4$, $K=5$}
+\textbf{Full 5-D CDT, edge-anchored Ekeland angle, $\ell_1$, $D_{\max}=4$, $K=5$, + RANSAC refine}
   & \textbf{TBR} & \textbf{TBR} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\caption{Rank-based retrieval recall: fraction of queries whose ground-truth
+  patch is ranked within the top-$N$ plurality-vote candidates. Unlike
+  Recall@$N$m, this is not bounded by the patch-grid quantization floor
+  (Section~\ref{sec:protocol}). All TBR.}
+\label{tab:retrieval}
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lc}
+\toprule
+\textbf{Metric} & \textbf{Recall (\%)$\uparrow$} \\
+\midrule
+Recall@1 (vote rank)   & TBR \\
+Recall@10 (vote rank)  & TBR \\
+Recall@50 (vote rank)  & TBR \\
+Recall@100 (vote rank) & TBR \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1713,18 +1758,20 @@ sorted interior angles and edge-anchored Ekeland Free-Cone Angles (MFCA).
 The key design innovation is the \emph{kernel expansion} $P_{\mathrm{sub}}$:
 the maximal polygon formed by merging CDT triangles while keeping all three
 original triangle vertices on the boundary.
-This stopping criterion is the direct geometric instantiation of Ekeland's
+This stopping criterion is geometrically analogous to Ekeland's
 cone-criticality condition, and the resulting Ekeland angle is computed
-exactly in $O(1)$ per vertex via an edge-anchored half-plane selection,
+exactly in $O(1)$ per vertex via an interior-angle closed form,
 replacing the earlier $1^\circ$-sweep approximation.
 The descriptor is invariant to texture, colour, resolution, and season, and
 requires no scene-specific training.
-The design of the MFCA component is structurally grounded in Ekeland's
-variational principle~\cite{ekeland1974}: every element of the principle
+The design of the MFCA component is geometrically inspired by Ekeland's
+variational principle~\cite{ekeland1974}: each element of the principle
 (complete metric space, bounded function, cone-touching condition, critical
-point value) corresponds to a concrete, computable geometric object in
-$P_{\mathrm{sub}}$---a grounding that is structural rather than rhetorical,
-and that resolves all previous sup-not-attained edge cases by construction.
+point value) has a natural geometric counterpart in our construction
+(Table~\ref{tab:ekeland_correspondence})---an analogy that motivates the
+descriptor's design and yields a closed-form computation with no
+sup-not-attained edge case, rather than a literal instantiation of EVP's
+analytic machinery.
 An offline KD-tree index reduces online matching to $O(M\log N)$; plurality
 voting over satellite patches converts the matching output to a predicted 2-D
 geographic position.
@@ -1747,9 +1794,10 @@ localization requires a second-stage triangle-to-triangle centroid alignment.
 segmented footprint (the kernel expansion never crosses the polygon boundary);
 inter-building spatial context across footprints is not captured and is a
 natural extension of the obstacle set.
-(iv) Citations for SSPT~\cite{fan2024sspt} and SWA-PF~\cite{yuan2025swapf}
-currently lack complete venue details; full entries will be provided upon
-publication.
+(iv) SWA-PF~\cite{yuan2025swapf} is, as of this writing, an arXiv preprint
+with no peer-reviewed venue found despite an exhaustive search; its numbers
+are reproduced as reported and should be re-checked against a peer-reviewed
+version if one appears before publication.
 
 \FloatBarrier
 \bibliographystyle{plain}

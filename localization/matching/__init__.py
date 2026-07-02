@@ -13,6 +13,8 @@ __all__ = [
     "plurality_vote",
     "PatchPrediction",
     "QueryResult",
+    "ransac_refine_position",
+    "RefineResult",
     "draw_predicted_position",
     "draw_gt_and_prediction",
     "draw_top_n_predictions",
@@ -29,6 +31,10 @@ def __getattr__(name: str) -> Any:
         from . import query as _q
 
         return getattr(_q, name)
+    if name in ("ransac_refine_position", "RefineResult"):
+        from . import refine as _r
+
+        return getattr(_r, name)
     if name in (
         "draw_predicted_position",
         "draw_gt_and_prediction",

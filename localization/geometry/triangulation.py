@@ -94,9 +94,37 @@ class TriangulationGraph:
             current = next_vertex
         return ordered
 
+    def _shared_edge_length(self, region_triangle_indices, candidate_tri_idx: int) -> float:
+        """Length of the edge(s) ``candidate_tri_idx`` shares with the current
+        region boundary - a geometric, serialization-invariant merge priority
+        (see :meth:`expand_from_seed_triangle`).
+        """
+        boundary_edges = set(self.get_region_boundary_edges(region_triangle_indices))
+        simplex = self.triangulation.simplices[candidate_tri_idx]
+        candidate_edges = [
+            tuple(sorted([int(simplex[0]), int(simplex[1])])),
+            tuple(sorted([int(simplex[1]), int(simplex[2])])),
+            tuple(sorted([int(simplex[2]), int(simplex[0])])),
+        ]
+        shared = [e for e in candidate_edges if e in boundary_edges]
+        if not shared:
+            return 0.0
+        pts = self.triangulation.points
+        return float(sum(np.linalg.norm(pts[e[0]] - pts[e[1]]) for e in shared))
+
     def expand_from_seed_triangle(self, dual_graph, seed_triangle_idx, max_iterations: int = 100) -> dict:
         """Phase 1 - merge adjacent triangles into P_sub while keeping all three
         seed vertices on the boundary (Ekeland criticality stopping condition).
+
+        Among all valid candidates in the frontier, the one sharing the
+        *longest* edge with the current region boundary is merged first. This
+        is a purely geometric priority rule: it depends only on vertex
+        coordinates, not on how the CDT happens to index its triangles, so
+        the resulting P_sub is invariant to triangle serialization order
+        (matching triangulations that differ only in index assignment, e.g.
+        from minor vertex-ordering noise between a UAV mask and its satellite
+        counterpart, still expand identically). Triangle index is used only
+        as a last-resort tiebreak for exact ties in shared-edge length.
         """
         original_simplex, _ = self.get_triangle_vertices(seed_triangle_idx)
         original_vertices = set(int(v) for v in original_simplex)
@@ -107,27 +135,34 @@ class TriangulationGraph:
 
         expansion_steps = 0
         for _ in range(max_iterations):
-            added_in_this_step = False
-            for candidate_tri_idx in sorted(frontier):
+            best_candidate = None
+            best_score = None
+            for candidate_tri_idx in frontier:
                 temp_region = current_region | {candidate_tri_idx}
                 temp_boundary_edges = self.get_region_boundary_edges(temp_region)
                 temp_boundary_vertices = self.get_region_boundary_vertices(temp_region)
                 original_still_on_boundary = original_vertices.issubset(temp_boundary_vertices)
                 ordered_loop = self.order_boundary_vertices(temp_boundary_edges)
                 no_holes = len(ordered_loop) == len(temp_boundary_vertices)
+                if not (original_still_on_boundary and no_holes):
+                    continue
 
-                if original_still_on_boundary and no_holes:
-                    current_region = temp_region
-                    frontier.remove(candidate_tri_idx)
-                    for neighbor_idx in dual_graph[candidate_tri_idx]:
-                        if neighbor_idx not in visited:
-                            frontier.add(neighbor_idx)
-                            visited.add(neighbor_idx)
-                    expansion_steps += 1
-                    added_in_this_step = True
-                    break
-            if not added_in_this_step:
+                shared_len = self._shared_edge_length(current_region, candidate_tri_idx)
+                score = (shared_len, -candidate_tri_idx)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_candidate = candidate_tri_idx
+
+            if best_candidate is None:
                 break
+
+            current_region = current_region | {best_candidate}
+            frontier.remove(best_candidate)
+            for neighbor_idx in dual_graph[best_candidate]:
+                if neighbor_idx not in visited:
+                    frontier.add(neighbor_idx)
+                    visited.add(neighbor_idx)
+            expansion_steps += 1
 
         final_boundary_edges = self.get_region_boundary_edges(current_region)
         current_boundary_vertices = self.get_region_boundary_vertices(current_region)

@@ -19,6 +19,7 @@ __all__ = [
     "build_satellite_descriptors",
     "query_uav",
     "query_top_n_patches",
+    "ransac_refine_position",
     "draw_gt_vs_topn_centroids",
 ]
 
@@ -45,6 +46,10 @@ def __getattr__(name: str) -> Any:
         from .matching import query as _q
 
         return getattr(_q, name)
+    if name == "ransac_refine_position":
+        from .matching.refine import ransac_refine_position
+
+        return ransac_refine_position
     if name == "draw_gt_vs_topn_centroids":
         from .matching.visualize import draw_gt_vs_topn_centroids
 

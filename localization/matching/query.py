@@ -42,6 +42,7 @@ class PatchPrediction:
 @dataclass
 class QueryResult:
     patch_id: str
+    winner_code: int
     vote_count: int
     second_place_votes: int
     pixel_xy: Tuple[float, float]
@@ -58,6 +59,7 @@ class QueryResult:
     def to_dict(self) -> dict:
         return {
             "patch_id": self.patch_id,
+            "winner_code": int(self.winner_code),
             "vote_count": int(self.vote_count),
             "second_place_votes": int(self.second_place_votes),
             "pixel_xy": (float(self.pixel_xy[0]), float(self.pixel_xy[1])),
@@ -86,13 +88,22 @@ def plurality_vote(
 def _plurality_vote_codes(
     indices: np.ndarray,
     patch_id_codes: np.ndarray,
+    distances: Optional[np.ndarray] = None,
+    max_distance: Optional[float] = None,
 ) -> Tuple[int, int, int, np.ndarray]:
     """Vote with integer codes.
 
     Returns ``(winner_code, winner_votes, runner_up, counts)`` where
-    ``counts`` is a length-P int32 array.
+    ``counts`` is a length-P int32 array. If ``max_distance`` is given (with
+    matching ``distances``), a match only casts a vote when its retrieval
+    distance is within that bound - distance-gated voting, which rejects
+    matches too far to plausibly be the same physical corner rather than
+    letting every K-NN slot vote regardless of match quality.
     """
     flat_codes = patch_id_codes[np.asarray(indices).flatten()]
+    if max_distance is not None and distances is not None:
+        keep = np.asarray(distances, dtype=np.float64).flatten() <= float(max_distance)
+        flat_codes = flat_codes[keep]
     if flat_codes.size == 0:
         return -1, 0, 0, np.zeros(0, dtype=np.int32)
     n_patches = int(patch_id_codes.max()) + 1 if patch_id_codes.size else 0
@@ -112,15 +123,21 @@ def _weighted_vote_codes(
     indices: np.ndarray,
     distances: np.ndarray,
     patch_id_codes: np.ndarray,
+    max_distance: Optional[float] = None,
 ) -> Tuple[int, int, int, np.ndarray]:
     """Distance-weighted voting (ablation): each match votes 1/(1 + d).
 
     Returns the same shape of result as :func:`_plurality_vote_codes`; the
     per-patch weighted sums are returned as ``counts`` (float64 rounded into
-    int semantics is avoided - callers treat counts ordinally).
+    int semantics is avoided - callers treat counts ordinally). ``max_distance``
+    applies the same distance gate as :func:`_plurality_vote_codes`.
     """
     flat_codes = patch_id_codes[np.asarray(indices).flatten()]
     flat_dist = np.asarray(distances, dtype=np.float64).flatten()
+    if max_distance is not None:
+        keep = flat_dist <= float(max_distance)
+        flat_codes = flat_codes[keep]
+        flat_dist = flat_dist[keep]
     if flat_codes.size == 0:
         return -1, 0, 0, np.zeros(0, dtype=np.float64)
     n_patches = int(patch_id_codes.max()) + 1 if patch_id_codes.size else 0
@@ -175,6 +192,7 @@ def query_uav(
     top_n: int = 100,
     p: float = 1,
     weighted: bool = False,
+    max_vote_distance: Optional[float] = None,
 ) -> Optional[QueryResult]:
     """Retrieve K-NN, vote, return the rank-1 patch centroid plus the top-N list.
 
@@ -186,6 +204,9 @@ def query_uav(
     2 only for the ell_2 ablation). ``weighted=True`` switches plurality
     voting to distance-weighted voting (weight 1/(1+d) per match) for the
     voting-strategy ablation; vote counts are then rounded weighted sums.
+    ``max_vote_distance``, if set, gates voting: a K-NN match only casts a
+    vote when its retrieval distance is within this bound (see
+    :func:`_plurality_vote_codes`).
     """
     uav_descriptors = np.ascontiguousarray(np.asarray(uav_descriptors, dtype=np.float32))
     if uav_descriptors.shape[0] == 0 or db.size == 0:
@@ -194,10 +215,12 @@ def query_uav(
     distances, indices = db.query(uav_descriptors, k=int(k), p=p)
     if weighted:
         winner_code, winner_votes, runner_up, counts = _weighted_vote_codes(
-            indices, distances, db.patch_id_codes
+            indices, distances, db.patch_id_codes, max_distance=max_vote_distance
         )
     else:
-        winner_code, winner_votes, runner_up, counts = _plurality_vote_codes(indices, db.patch_id_codes)
+        winner_code, winner_votes, runner_up, counts = _plurality_vote_codes(
+            indices, db.patch_id_codes, distances=distances, max_distance=max_vote_distance
+        )
     if winner_code < 0:
         return None
 
@@ -214,6 +237,7 @@ def query_uav(
 
     return QueryResult(
         patch_id=winner_id,
+        winner_code=int(winner_code),
         vote_count=int(winner_votes),
         second_place_votes=int(runner_up),
         pixel_xy=(float(centroid_xy[0]), float(centroid_xy[1])),

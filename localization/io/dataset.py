@@ -62,7 +62,19 @@ class VisLocFlight:
 
     @property
     def bounds_csv(self) -> Path:
-        return self.root / "satellite_coordinates_range.csv"
+        """Path to the site-bounds CSV.
+
+        The Kaggle download of UAV-VisLoc names this file with a stray space
+        (``satellite_ coordinates_range.csv``); accept either variant so
+        ground-truth lookups don't silently fail depending on data source.
+        """
+        no_space = self.root / "satellite_coordinates_range.csv"
+        if no_space.exists():
+            return no_space
+        spaced = self.root / "satellite_ coordinates_range.csv"
+        if spaced.exists():
+            return spaced
+        return no_space
 
     def drone_image_path(self, filename: str) -> Path:
         return self.drone_dir / filename

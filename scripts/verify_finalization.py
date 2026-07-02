@@ -11,7 +11,12 @@ Checks:
      reflex L-shape vertex -> 90 deg; convex vertex -> 180 deg.
   5. Isolated triangle -> (e1,e2,e3) = (180,180,180).
   6. Monotonicity (Prop. 1): deeper expansion -> smaller-or-equal min Ekeland angle.
-  7. New plot writes a non-empty PNG and selects the correct nearest-GT candidate.
+  7. Order-invariance: a genuine merge ambiguity resolves identically regardless
+     of which candidate has the lower CDT triangle index (no index-based bias).
+  8. RANSAC sub-patch refinement (Sec. 5.7): recovers a known translation from
+     noisy correspondences while ignoring an outlier, and falls back to the
+     coarse patch centroid, unchanged, when starved of correspondences.
+  9. New plot writes a non-empty PNG and selects the correct nearest-GT candidate.
 """
 
 from __future__ import annotations
@@ -43,6 +48,16 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 # L-shape (CCW, one reflex vertex at index 3 = (1,1), interior angle 270 deg).
 L_SHAPE = np.array([(0, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2)], dtype=float)
+
+
+class _MockTriangulation:
+    """Duck-types scipy.spatial.Delaunay's ``.points/.simplices/.neighbors``
+    so TriangulationGraph can be driven with a hand-built mesh."""
+
+    def __init__(self, points, simplices, neighbors):
+        self.points = np.asarray(points, dtype=float)
+        self.simplices = np.asarray(simplices, dtype=int)
+        self.neighbors = np.asarray(neighbors, dtype=int)
 
 
 def test_imports() -> None:
@@ -116,6 +131,171 @@ def test_monotonicity() -> None:
     )
 
 
+def test_order_invariance() -> None:
+    """A genuine merge ambiguity (two valid single-step candidates sharing
+    edges of different lengths) must resolve the same way regardless of
+    which candidate happens to have the lower CDT triangle index - the fix
+    for the reviewer-flagged order-dependency bug (was: ``sorted(frontier)``,
+    i.e. ascending index with no geometric tiebreak).
+    """
+    from localization.geometry.triangulation import TriangulationGraph
+
+    # Seed T0 = (A, B, C). T_long shares T0's long edge AB (length 6);
+    # T_short shares T0's short edge AC (length ~1.41). Both individually
+    # keep A, B, C on the boundary, so both are valid Phase-1 candidates -
+    # the correct choice (longest shared edge) must be T_long either way.
+    points = [
+        (0.0, 0.0),   # 0 = A
+        (6.0, 0.0),   # 1 = B
+        (1.0, 1.0),   # 2 = C
+        (3.0, -2.0),  # 3 = D (forms T_long = A,B,D)
+        (-1.0, 2.0),  # 4 = E (forms T_short = A,C,E)
+    ]
+    long_edge_vertices = {0, 1, 3}
+
+    def run(swap_indices: bool) -> set:
+        if not swap_indices:
+            simplices = [[0, 1, 2], [0, 1, 3], [0, 2, 4]]  # T_long is index 1
+        else:
+            simplices = [[0, 1, 2], [0, 2, 4], [0, 1, 3]]  # T_long is index 2
+        neighbors = [[1, 2, -1], [0, -1, -1], [0, -1, -1]]
+        tri = _MockTriangulation(points, simplices, neighbors)
+        graph = TriangulationGraph(tri)
+        dual = graph.build_dual_graph()
+        result = graph.expand_from_seed_triangle(dual, seed_triangle_idx=0, max_iterations=1)
+        merged_idx = next(iter(result["region_triangles"] - {0}))
+        return set(int(v) for v in tri.simplices[merged_idx])
+
+    merged_normal = run(swap_indices=False)
+    merged_swapped = run(swap_indices=True)
+    check(
+        "order-invariant merge: normal indexing picks longest shared edge",
+        merged_normal == long_edge_vertices, f"merged {merged_normal}",
+    )
+    check(
+        "order-invariant merge: swapped indexing still picks longest shared edge",
+        merged_swapped == long_edge_vertices, f"merged {merged_swapped}",
+    )
+
+
+def test_ransac_refinement() -> None:
+    """Sub-patch RANSAC translation refinement (paper Sec. 5.7): recovers a
+    known translation from noisy in-patch correspondences while ignoring an
+    in-patch outlier (false match), and falls back to the coarse patch
+    centroid, unchanged, when starved of correspondences.
+    """
+    from localization.database.kdtree import SatelliteDatabase
+    from localization.matching.refine import ransac_refine_position
+
+    rng = np.random.default_rng(1)
+    true_translation = np.array([120.0, -40.0])
+    n_win = 6
+    sat_win = rng.uniform(0, 500, size=(n_win, 2))
+    uav_win = sat_win - true_translation + rng.normal(0.0, 0.5, size=(n_win, 2))
+    # One in-patch false match: implies a wildly different translation.
+    uav_outlier = np.array([[10.0, 10.0]])
+    sat_outlier = np.array([[400.0, 400.0]])
+    # One decoy correspondence in a different patch (must be ignored entirely).
+    uav_decoy = np.array([[250.0, 250.0]])
+    sat_decoy = np.array([[10.0, 10.0]])
+
+    all_uav = np.vstack([uav_win, uav_outlier, uav_decoy])
+    all_sat = np.vstack([sat_win, sat_outlier, sat_decoy]).astype(np.float32)
+    patch_ids = np.array(["winner"] * (n_win + 1) + ["decoy"])
+    descriptors = np.zeros((all_sat.shape[0], 5), dtype=np.float32)
+    db = SatelliteDatabase(descriptors, all_sat, patch_ids, leaf_size=4)
+    winner_code = int(np.where(db.patch_id_strings == "winner")[0][0])
+    nearest_indices = np.arange(all_uav.shape[0]).reshape(-1, 1)  # k=1, row i -> sat row i
+    coarse_xy = tuple(db.patch_centroids[winner_code])
+    uav_reference = (250.0, 250.0)
+
+    result = ransac_refine_position(
+        uav_centroids=all_uav, nearest_indices=nearest_indices, db=db,
+        winner_code=winner_code, uav_reference_xy=uav_reference, coarse_pixel_xy=coarse_xy,
+        inlier_threshold_px=5.0, min_correspondences=3,
+    )
+    expected_xy = np.array(uav_reference) + true_translation
+    err = float(np.linalg.norm(np.array(result.pixel_xy) - expected_xy))
+    check(
+        "RANSAC refinement recovers known translation, ignores in-patch outlier",
+        result.refined and err < 2.0 and result.n_inliers == n_win and result.n_correspondences == n_win + 1,
+        f"err={err:.3f}px, inliers={result.n_inliers}/{result.n_correspondences}",
+    )
+
+    starved = ransac_refine_position(
+        uav_centroids=all_uav[:1], nearest_indices=np.array([[0]]), db=db,
+        winner_code=winner_code, uav_reference_xy=uav_reference, coarse_pixel_xy=coarse_xy,
+        min_correspondences=3,
+    )
+    check(
+        "RANSAC refinement falls back to the coarse centroid when starved",
+        (not starved.refined) and starved.pixel_xy == (float(coarse_xy[0]), float(coarse_xy[1])),
+        f"pixel_xy={starved.pixel_xy}",
+    )
+
+
+def test_patch_dedup() -> None:
+    """Nearest-patch-center deduplication (patch_owns_centroid): every point
+    is owned by exactly one of two adjacent patches, including points
+    exactly on the shared cell boundary (no double-count, no gap) - the
+    fix for the ~15x triangle duplication measured across the 80%-overlapping
+    patch grid.
+    """
+    from localization.database.patches import patch_owns_centroid
+
+    patch_size, stride = 500, 100
+    tl_a, tl_b = (0.0, 0.0), (100.0, 0.0)  # adjacent patches on the grid
+    center_a = (tl_a[0] + patch_size / 2, tl_a[1] + patch_size / 2)
+    center_b = (tl_b[0] + patch_size / 2, tl_b[1] + patch_size / 2)
+
+    check(
+        "patch dedup: a patch's own center is owned by it, not its neighbor",
+        patch_owns_centroid(center_a, tl_a, patch_size, stride)
+        and not patch_owns_centroid(center_a, tl_b, patch_size, stride),
+    )
+
+    boundary = ((center_a[0] + center_b[0]) / 2, center_a[1])  # exactly on the shared cell edge
+    owned_by_a = patch_owns_centroid(boundary, tl_a, patch_size, stride)
+    owned_by_b = patch_owns_centroid(boundary, tl_b, patch_size, stride)
+    check(
+        "patch dedup: a point exactly on the shared boundary is owned by exactly one patch",
+        owned_by_a != owned_by_b, f"owned_by_a={owned_by_a}, owned_by_b={owned_by_b}",
+    )
+
+    far_away = (center_a[0] + 10 * stride, center_a[1])
+    check(
+        "patch dedup: a point far outside a patch's cell is owned by neither",
+        not patch_owns_centroid(far_away, tl_a, patch_size, stride)
+        and not patch_owns_centroid(far_away, tl_b, patch_size, stride),
+    )
+
+    # A wider cell_size re-admits bounded overlap between near neighbors
+    # (trading duplication for more triangles/vote-bucket); a point 1.5
+    # strides from A's center should be excluded at the default (stride)
+    # cell size but included once the cell is widened past that distance.
+    p_1_5_stride = (center_a[0] + 1.5 * stride, center_a[1])
+    check(
+        "patch dedup: wider cell_size re-admits a point excluded at the default width",
+        not patch_owns_centroid(p_1_5_stride, tl_a, patch_size, stride, cell_size=stride)
+        and patch_owns_centroid(p_1_5_stride, tl_a, patch_size, stride, cell_size=4 * stride),
+    )
+
+    from localization.database.patches import vote_bucket_id
+
+    bucket_size = 500.0
+    same_bucket_a = (120.0, 220.0)
+    same_bucket_b = (480.0, 490.0)  # same 500x500 cell as same_bucket_a
+    different_bucket = (520.0, 220.0)  # one cell over in x
+    check(
+        "vote bucket: two points in the same bucket_size cell share an id",
+        vote_bucket_id(same_bucket_a, bucket_size) == vote_bucket_id(same_bucket_b, bucket_size),
+    )
+    check(
+        "vote bucket: a point in the neighboring cell gets a different id",
+        vote_bucket_id(same_bucket_a, bucket_size) != vote_bucket_id(different_bucket, bucket_size),
+    )
+
+
 def test_visualization() -> None:
     from PIL import Image
 
@@ -165,6 +345,9 @@ def main() -> int:
         test_ekeland_closed_form,
         test_isolated_triangle,
         test_monotonicity,
+        test_order_invariance,
+        test_ransac_refinement,
+        test_patch_dedup,
         test_visualization,
     ):
         try:

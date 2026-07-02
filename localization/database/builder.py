@@ -9,6 +9,7 @@ satellite uses ``batch_size > 1`` to amortize forward-pass overhead across
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Callable, List, Optional, Tuple
 
@@ -18,7 +19,7 @@ from PIL import Image
 
 from ..geometry.descriptor import triangle_descriptors_from_polygon
 from ..segmentation.inference import segment_batch
-from .patches import iter_patches, patch_count
+from .patches import iter_patches, patch_count, patch_owns_centroid, vote_bucket_id
 
 
 def _polygons_to_descriptors(
@@ -91,6 +92,8 @@ def build_satellite_descriptors(
     progress: bool = True,
     polygon_sink: Optional[Callable[[str, Tuple[int, int], List[List[List[float]]]], None]] = None,
     max_patches: Optional[int] = None,
+    dedup_cell_size: Optional[float] = None,
+    vote_bucket_size: Optional[float] = None,
 ) -> pd.DataFrame:
     """Iterate patches of a satellite GeoTIFF and collect 5-D descriptors.
 
@@ -105,15 +108,29 @@ def build_satellite_descriptors(
     descriptors without re-running Mask R-CNN. ``max_patches`` caps the number
     of patches processed (smoke testing only - NOT for paper results).
 
+    ``dedup_cell_size`` (default ``stride``) and ``vote_bucket_size`` (default
+    ``patch_size``) are two independent grids: ``dedup_cell_size`` decides
+    which single overlapping patch "owns" a triangle (eliminating the ~15-25x
+    redundant copies otherwise produced by the 80%-overlapping sliding
+    window), while ``vote_bucket_size`` is the coarser grid actually used for
+    the ``patch_id`` column - i.e. the plurality-vote and position-output
+    identity - since the ownership cell is too narrow on its own for votes to
+    reliably concentrate (a single UAV query's field of view spans several
+    ownership cells). See ``localization.database.patches.vote_bucket_id``.
+
     Returns a DataFrame with columns:
         ``patch_id, top_left_x, top_left_y, centroid_x, centroid_y,
          alpha1, alpha2, e1, e2, e3, parent_tif``
 
     ``centroid_x`` and ``centroid_y`` are in the parent satellite-image pixel
-    coordinate system.
+    coordinate system. ``patch_id`` is the vote bucket (see above); when
+    ``vote_bucket_size`` is left at its default, ``top_left_x/y`` are the
+    bucket's own top-left corner (``bucket_index * vote_bucket_size``), so
+    every row sharing a ``patch_id`` also shares the same ``top_left_x/y``.
     """
     Image.MAX_IMAGE_PIXELS = None
     parent_tif = os.path.basename(tif_path)
+    bucket_size = float(vote_bucket_size) if vote_bucket_size is not None else float(patch_size)
     image = Image.open(tif_path).convert("RGB")
     total_patches = patch_count(image.size, patch_size=patch_size, stride=stride)
 
@@ -150,12 +167,22 @@ def build_satellite_descriptors(
                 polygon_sink(pid, (tx, ty), polygons)
             desc, cent = _polygons_to_descriptors(polygons, offset_xy=(tx, ty), max_depth=max_depth)
             for d, c in zip(desc, cent):
+                # Deduplicate across the 80%-overlapping patch grid: only keep
+                # a triangle in patches within dedup_cell_size of its centroid.
+                if not patch_owns_centroid((c[0], c[1]), (tx, ty), patch_size, stride, cell_size=dedup_cell_size):
+                    continue
+                # Vote bucket (paper's actual voting/position-output identity)
+                # is a separate, coarser grid than the dedup-ownership cell -
+                # see the module-level docstring above.
+                bucket_id = vote_bucket_id((c[0], c[1]), bucket_size, prefix=f"{parent_tif}_")
+                bucket_tl_x = int(math.floor(c[0] / bucket_size) * bucket_size)
+                bucket_tl_y = int(math.floor(c[1] / bucket_size) * bucket_size)
                 records.append(
                     {
-                        "patch_id": pid,
+                        "patch_id": bucket_id,
                         "parent_tif": parent_tif,
-                        "top_left_x": int(tx),
-                        "top_left_y": int(ty),
+                        "top_left_x": bucket_tl_x,
+                        "top_left_y": bucket_tl_y,
                         "centroid_x": float(c[0]),
                         "centroid_y": float(c[1]),
                         "alpha1": float(d[0]),
