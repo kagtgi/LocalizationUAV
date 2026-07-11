@@ -1,0 +1,239 @@
+\begin{thebibliography}{10}
+
+\bibitem{arkin1991efsd}
+Esther~M. Arkin, L.~Paul Chew, Daniel~P. Huttenlocher, Klara Kedem, and Joseph
+  S.~B. Mitchell.
+\newblock An efficiently computable metric for comparing polygonal shapes.
+\newblock {\em IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  13(3):209--216, 1991.
+
+\bibitem{bay2006surf}
+Herbert Bay, Tinne Tuytelaars, and Luc Van~Gool.
+\newblock {SURF}: Speeded up robust features.
+\newblock In Ale{\v{s}} Leonardis, Horst Bischof, and Axel Pinz, editors, {\em
+  Computer Vision -- ECCV 2006}, volume 3951 of {\em Lecture Notes in Computer
+  Science}, pages 404--417, Berlin, Heidelberg, 2006. Springer.
+
+\bibitem{belongie2002shape}
+Serge Belongie, Jitendra Malik, and Jan Puzicha.
+\newblock Shape matching and object recognition using shape contexts.
+\newblock {\em IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  24(4):509--522, 2002.
+
+\bibitem{choi2020brm}
+Junho Choi and Hyun Myung.
+\newblock {BRM} localization: {UAV} localization in {GNSS}-denied environments
+  based on matching of numerical map and {UAV} images.
+\newblock In {\em 2020 IEEE/RSJ International Conference on Intelligent Robots
+  and Systems (IROS)}, pages 4537--4544. IEEE, 2020.
+\newblock Real reported accuracy is 6-12m RMSE (Table II), NOT centimeter-level
+  -- see verification report.
+
+\bibitem{conte2009vision}
+Gianpaolo Conte and Patrick Doherty.
+\newblock Vision-based unmanned aerial vehicle navigation using geo-referenced
+  information.
+\newblock {\em EURASIP Journal on Advances in Signal Processing}, 2009:387308,
+  2009.
+
+\bibitem{couturier2021review}
+Andy Couturier and Moulay~A. Akhloufi.
+\newblock A review on absolute visual localization for {UAV}.
+\newblock {\em Robotics and Autonomous Systems}, 135:103666, 2021.
+
+\bibitem{dai2022fpi}
+Ming Dai, Enhui Zheng, Jiahao Chen, Lei Qi, Zhenhua Feng, and Wankou Yang.
+\newblock Finding point with image: An end-to-end benchmark for vision-based
+  {UAV} localization, 2022.
+\newblock Author list from arXiv v1 (the FPI-titled version); the paper was
+  later substantially revised/retitled to "Drone Referring Localization (DRL)"
+  in v3. Real reported RDS = 57.22 (confirmed by 2 independent citing papers'
+  comparison tables) -- use this to fill the table's TBR placeholders instead
+  of mean/median/RMSE, since FPI's native metrics are MA@K (Meter-level
+  Accuracy) and RDS (Relative Distance Score), not
+  mean/median/RMSE/Recall@10,20,50. See verification report.
+
+\bibitem{de1997computational}
+Mark de~Berg, Marc van Kreveld, Mark Overmars, and Otfried Schwarzkopf.
+\newblock {\em Computational Geometry: Algorithms and Applications}.
+\newblock Springer-Verlag, Berlin, 1st edition, 1997.
+
+\bibitem{devadoss2011discrete}
+Satyan~L. Devadoss and Joseph O'Rourke.
+\newblock {\em Discrete and Computational Geometry}.
+\newblock Princeton University Press, 2011.
+
+\bibitem{hershberger1992douglas}
+David~H. Douglas and Thomas~K. Peucker.
+\newblock Algorithms for the reduction of the number of points required to
+  represent a digitized line or its caricature.
+\newblock {\em The Canadian Cartographer}, 10(2):112--122, 1973.
+
+\bibitem{dovis2015gnss}
+Fabio Dovis.
+\newblock {\em {GNSS} Interference Threats and Countermeasures}.
+\newblock GNSS Technology and Applications Series. Artech House, Boston, MA,
+  2015.
+
+\bibitem{ekeland1974}
+Ivar Ekeland.
+\newblock On the variational principle.
+\newblock {\em Journal of Mathematical Analysis and Applications}, 47:324--353,
+  1974.
+
+\bibitem{fan2024sspt}
+Jiqi Fan, Enhui Zheng, Yufei He, and Jianxing Yang.
+\newblock A cross-view geo-localization algorithm using {UAV} image and
+  satellite image.
+\newblock {\em Sensors}, 24(12):3719, 2024.
+
+\bibitem{fang2021building}
+Fang Fang, Kaishun Wu, and Daoyuan Zheng.
+\newblock A dataset of building instances of typical cities in {China} (v2).
+\newblock China Scientific Data / ScienceDB, 2021.
+\newblock Moderate confidence: author list corroborated by multiple secondary
+  sources; primary ScienceDB/sciengine.com page could not be directly fetched.
+
+\bibitem{goforth2019gps}
+Hunter Goforth and Simon Lucey.
+\newblock {GPS}-denied {UAV} localization using pre-existing satellite imagery.
+\newblock In {\em 2019 International Conference on Robotics and Automation
+  (ICRA)}, pages 2974--2980. IEEE, 2019.
+
+\bibitem{he2017maskrcnn}
+Kaiming He, Georgia Gkioxari, Piotr Doll{\'a}r, and Ross Girshick.
+\newblock Mask {R-CNN}.
+\newblock In {\em 2017 IEEE International Conference on Computer Vision
+  (ICCV)}, pages 2980--2988. IEEE, 2017.
+
+\bibitem{ji2018building}
+Shunping Ji, Shiqing Wei, and Meng Lu.
+\newblock Fully convolutional networks for multisource building extraction from
+  an open aerial and satellite imagery data set.
+\newblock {\em IEEE Transactions on Geoscience and Remote Sensing},
+  57(1):574--586, 2019.
+
+\bibitem{video2bev2024}
+Hao Ju, Shaofei Huang, Si~Liu, and Zhedong Zheng.
+\newblock {Video2BEV}: Transforming drone videos to {BEV}s for video-based
+  geo-localization.
+\newblock In {\em Proceedings of the IEEE/CVF International Conference on
+  Computer Vision (ICCV)}, pages 27073--27083, 2025.
+\newblock arXiv preprint first posted November 2024.
+
+\bibitem{kinnari2023lsvl}
+Jouko Kinnari, Riccardo Renzulli, Francesco Verdoja, and Ville Kyrki.
+\newblock {LSVL}: Large-scale season-invariant visual localization for {UAVs}.
+\newblock {\em Robotics and Autonomous Systems}, 168:104497, 2023.
+
+\bibitem{kinnari2022season}
+Jouko Kinnari, Francesco Verdoja, and Ville Kyrki.
+\newblock Season-invariant {GNSS}-denied visual localization for {UAVs}.
+\newblock {\em IEEE Robotics and Automation Letters}, 7(4):10232--10239, 2022.
+
+\bibitem{mgs2_2026}
+Minglei Li, Mengfan He, Chunyu Li, Chao Chen, Xingyu Shao, and Ziyang Meng.
+\newblock ({MGS})$^2$-net: Unifying micro-geometric scale and macro-geometric
+  structure for cross-view geo-localization, 2026.
+
+\bibitem{skylink2026}
+Bowen Liu, Pengyue Jia, Wanyu Wang, Derong Xu, Jiawei Cheng, Jiancheng Dong,
+  Xiao Han, Zimo Zhao, Chao Zhang, Bowen Yu, Fangyu Hong, and Xiangyu Zhao.
+\newblock {SkyLink}: A large vision-language model driven re-ranking framework
+  for cross-view {UAV} geolocalization, 2026.
+
+\bibitem{lowe2004sift}
+David~G. Lowe.
+\newblock Distinctive image features from scale-invariant keypoints.
+\newblock {\em International Journal of Computer Vision}, 60(2):91--110, 2004.
+
+\bibitem{mantelli2019abbrief}
+Mathias Mantelli, Diego Pittol, Renata Neuland, Arthur Ribacki, Renan Maffei,
+  Vitor Jorge, Edson Prestes, and Mariana Kolberg.
+\newblock A novel measurement model based on {abBRIEF} for global localization
+  of a {UAV} over satellite images.
+\newblock {\em Robotics and Autonomous Systems}, 112:304--319, 2019.
+
+\bibitem{murrian2021gnss}
+Matthew~J. Murrian, Lakshay Narula, Peter~A. Iannucci, Scott Budzien, Brady~W.
+  O'Hanlon, Mark~L. Psiaki, and Todd~E. Humphreys.
+\newblock First results from three years of {GNSS} interference monitoring from
+  low {E}arth orbit.
+\newblock {\em NAVIGATION: Journal of the Institute of Navigation},
+  68(4):673--685, 2021.
+
+\bibitem{nassar2018deep}
+Ahmed Nassar, Karim Amer, Reda ElHakim, and Mohamed ElHelw.
+\newblock A deep {CNN}-based framework for enhanced aerial imagery registration
+  with applications to {UAV} geolocalization.
+\newblock In {\em Proceedings of the IEEE Conference on Computer Vision and
+  Pattern Recognition Workshops (CVPRW)}, pages 1626--1633, 2018.
+\newblock The "template-to-map ratio >25.9%" claim was checked against the full
+  paper text and does NOT appear anywhere in it -- likely fabricated or
+  misattributed. See verification report.
+
+\bibitem{orourke1987computational}
+Joseph O'Rourke.
+\newblock {\em Art Gallery Theorems and Algorithms}.
+\newblock Oxford University Press, 1987.
+
+\bibitem{ouyang2024cfbvm}
+Chenguang Ouyang, Suxing Hu, Fengqi Long, Shuai Shi, Zhichao Yu, Kaichun Zhao,
+  Zheng You, Junyin Pi, and Bowen Xing.
+\newblock A semantic vector map-based approach for aircraft positioning in
+  {GNSS}/{GPS} denied large-scale environment.
+\newblock {\em Defence Technology}, 34:1--10, 2024.
+\newblock CAUTION: the 6.6m/11{,}025km2/400s-NCC numbers could not be
+  corroborated anywhere online (full text paywalled); see verification report.
+
+\bibitem{rublee2011orb}
+Ethan Rublee, Vincent Rabaud, Kurt Konolige, and Gary Bradski.
+\newblock {ORB}: An efficient alternative to {SIFT} or {SURF}.
+\newblock In {\em 2011 International Conference on Computer Vision (ICCV)},
+  pages 2564--2571. IEEE, 2011.
+
+\bibitem{shan2015google}
+Mo~Shan, Fei Wang, Feng Lin, Zhi Gao, Ya~Z. Tang, and Ben~M. Chen.
+\newblock Google map aided visual navigation for {UAVs} in {GPS}-denied
+  environment.
+\newblock In {\em 2015 IEEE International Conference on Robotics and
+  Biomimetics (ROBIO)}, pages 114--119, 2015.
+
+\bibitem{ssrm2024}
+Chenxi Wang et~al.
+\newblock Visual localization method for unmanned aerial vehicles in urban
+  scenes based on shape and spatial relationship matching of buildings.
+\newblock {\em Remote Sensing}, 16(16):3065, 2024.
+\newblock Shape + spatial-relationship building matching against clean vector
+  (.shp) e-maps; motivates that per-building semantic shape matching alone
+  cannot capture building uniqueness.
+
+\bibitem{xie2021segformer}
+Enze Xie, Wenhai Wang, Zhiding Yu, Anima Anandkumar, Jose~M. Alvarez, and Ping
+  Luo.
+\newblock {SegFormer}: Simple and efficient design for semantic segmentation
+  with transformers.
+\newblock In {\em Advances in Neural Information Processing Systems},
+  volume~34, pages 12077--12090, 2021.
+
+\bibitem{uavvisloc2024}
+Wenjia Xu, Yaxuan Yao, Jiaqi Cao, Zhiwei Wei, Chunbo Liu, Jiuniu Wang, and
+  Mugen Peng.
+\newblock {UAV-VisLoc}: A large-scale dataset for {UAV} visual localization,
+  2024.
+\newblock Dataset: \url{https://github.com/IntelliSensing/UAV-VisLoc}, Kaggle
+  mirror: \url{https://www.kaggle.com/datasets/hailong1610/uav-visloc-dataset}.
+
+\bibitem{yuan2025swapf}
+Jiayu Yuan, Ming Dai, Enhui Zheng, Chao Su, Nanxing Chen, Qiming Hu, Shibo Zhu,
+  and Yibin Cao.
+\newblock {SWA-PF}: Semantic-weighted adaptive particle filter for
+  memory-efficient 4-{DoF} {UAV} localization in {GNSS}-denied environments,
+  2025.
+
+\bibitem{hieruav2025}
+Xiangkai Zhang, Xiang Zhou, Mao Chen, Yuchen Lu, Xu~Yang, and Zhiyong Liu.
+\newblock Hierarchical image matching for {UAV} absolute visual localization
+  via semantic and structural constraints, 2025.
+
+\end{thebibliography}
