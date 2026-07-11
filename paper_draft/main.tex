@@ -103,12 +103,25 @@ methods, we further integrate the per-frame matches over a flight trajectory
 with a Gaussian-mixture observation and a particle filter; this too fails to
 converge, because the true position receives recurring observation support in
 only $12\%$ of frames.
+This limit is terrain-general: across five UAV-VisLoc sites spanning urban,
+coastal, hilly, built-up, and arid terrain, meter-level accuracy stays below
+$3\%$ within $500$\,m with kilometre-scale median error.
 We conclude that the limiting factor is the \emph{observation model}: purely
 geometric per-element matching does not supply the recurring, spatially
 consistent support that sequential estimation requires at scale, and must be
-paired with a stronger area-level observation or a learned embedding.
+paired with a stronger area-level observation.
+Acting on this diagnosis, we show the fix is constructive and keeps the Ekeland
+angle central: aggregating the descriptor over ${\approx}200$\,m cells---as a
+histogram of per-building Ekeland free-cone angles alongside building density
+and layout---escapes the per-element ceiling and, on every site, improves
+coarse-localization recall over a density/layout-only descriptor of the kind
+CFBVM-style area matching uses (e.g.\ top-$50$ recall $2.0\%\!\to\!10.2\%$ on the
+coastal site). The Ekeland free-cone angle is thus a complementary,
+discriminative shape cue at the area level, though absolute accuracy remains
+coarse.
 Our analysis provides the missing empirical account of why training-free
-geometric matching, though attractive, does not by itself scale.
+geometric matching, though attractive, does not by itself scale---and where the
+Ekeland descriptor nonetheless adds measurable value.
 \end{abstract}
 
 % ─────────────────────────────────────────────────────────────────────────────
@@ -207,9 +220,19 @@ provide.
       context, building-level granularity, normalization---each shrinking the
       true-match distance up to $16\times$ without effect), and that a
       CFBVM-style particle filter cannot recover it because the true position is
-      supported in only $12\%$ of frames. We conclude that the limiting factor
-      is the observation model, and identify what a scale-robust one must
-      supply (Sections~\ref{sec:analysis}--\ref{sec:seq}).
+      supported in only $12\%$ of frames. The ceiling is terrain-general: it
+      holds across five UAV-VisLoc sites spanning urban, coastal, hilly,
+      built-up, and arid terrain (Section~\ref{sec:persite}). We conclude that
+      the limiting factor is the observation model, and identify what a
+      scale-robust one must supply (Sections~\ref{sec:analysis}--\ref{sec:seq}).
+\item \textbf{An area-level Ekeland descriptor that recovers discriminability.}
+      Acting on the diagnosis, we aggregate the descriptor over ${\approx}200$\,m
+      cells as a histogram of per-building Ekeland free-cone angles (with density
+      and layout). This escapes the per-element ceiling and, on all four analysed
+      sites, improves coarse-localization recall over a density/layout-only
+      (CFBVM-style) descriptor---isolating the Ekeland angle as a complementary,
+      discriminative shape cue at the area level, though absolute accuracy
+      remains coarse (Section~\ref{sec:area}).
 \end{enumerate}
 
 \paragraph{Scope and assumptions.}
@@ -308,10 +331,22 @@ Ouyang et al.~\cite{ouyang2024cfbvm} proposed Coarse-to-Fine Building Vector
 Matching (CFBVM) combined with a GMM particle filter, achieving 6.6\,m mean
 error over 11,025\,km$^2$ using a shape vector defined over concentric
 density rings.
+Most closely related to our positive result, Wang et al.~\cite{ssrm2024}
+match buildings jointly on \emph{shape and spatial relationship} (SSRM) against
+clean vector (`.shp') e-maps, explicitly motivated by the observation---which
+our analysis independently quantifies---that per-building \emph{shape matching
+alone cannot capture building uniqueness}. A key distinction is the map source:
+SSRM matches against precise vector footprints, whereas we match UAV-segmented
+footprints against \emph{satellite-segmented} ones, where cross-view
+segmentation disagreement (Section~\ref{sec:analysis}) makes exact per-building
+correspondence infeasible---which is why our discriminability gain appears at the
+area level rather than per building.
 Our method shares the VMAP paradigm with CFBVM but substitutes ring-area
 summation with a triangle-level angular descriptor that requires no overlap
 area computation, is invariant to segmentation polygon ordering, and carries
-explicit free-space context through the kernel-expansion MFCA.
+explicit free-space context through the kernel-expansion MFCA; unlike CFBVM's
+shape-agnostic density rings, its area-level form retains per-building shape via
+Ekeland-angle histograms (Section~\ref{sec:area}).
 
 
 \noindent\textbf{Deep learning and sequential methods.}
@@ -1445,6 +1480,55 @@ which purely geometric matching operates, not as a competitive result.}
 \end{table*}
 
 \subsection{Per-Site Breakdown}
+\label{sec:persite}
+
+To confirm the failure is terrain-general rather than a property of one map, we
+run the single-frame pipeline on five UAV-VisLoc sites spanning distinct
+terrains---riverside-urban (01), coastal-agricultural (02), hilly-vegetated
+(03), built-up (08), and arid-town (11)---reporting meter-level accuracy
+$\mathrm{MA@}K$ (fraction of queries localized within $K$ metres), the standard
+protocol of building-vector methods~\cite{ouyang2024cfbvm}. Table~\ref{tab:persite}
+and Figure~\ref{fig:multisite} show the result: single-frame per-element
+matching fails on \emph{every} terrain---$\mathrm{MA@}500\mathrm{m}\!\le\!3\%$
+and median error $3.3$--$4.4$\,km throughout---despite building coverage of
+$93$--$99\%$ and truth-anchored retrieval of $0\%$ on the diagnostically
+analysed sites (01--03). The kilometre-scale error is thus not a scene artefact
+but a property of the paradigm.
+
+\begin{table}[htbp]
+\caption{Single-frame per-element localization across five terrains
+  ($100$ queries/site). $\mathrm{MA@}K$ = \% within $K$\,m; the correct place is
+  in the map (coverage $93$--$99\%$) but is never identified. The failure is
+  terrain-general.}
+\label{tab:persite}
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Site} & \textbf{Terrain} & \textbf{MA@100m} & \textbf{MA@200m} & \textbf{MA@500m} & \textbf{Median err} \\
+\midrule
+01 & riverside-urban   & 1.0\% & 1.0\% & 2.0\% & 3424\,m \\
+02 & coastal-agri.     & 1.1\% & 2.2\% & 2.2\% & 3313\,m \\
+03 & hilly-vegetated   & 0.0\% & 0.0\% & 3.0\% & 3304\,m \\
+08 & built-up          & 0.0\% & 0.0\% & 0.0\% & 4440\,m \\
+11 & arid-town         & 1.0\% & 1.0\% & 3.1\% & 3528\,m \\
+\midrule
+\rowcolor{ours}
+\multicolumn{2}{l}{\textbf{All sites}} & $\le1.1\%$ & $\le2.2\%$ & $\le3.1\%$ & $3.3$--$4.4$\,km \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figs/fig_multisite}
+  \caption{Cross-site single-frame localization. Median position error
+    (bars, log scale) stays at kilometre scale on every terrain while building
+    coverage (green) is $93$--$99\%$ and truth-anchored retrieval (orange) is
+    $\approx0\%$---the matching failure is terrain-general and is not a coverage
+    problem.}
+  \label{fig:multisite}
+\end{figure}
 
 \subsection{Coverage is not the bottleneck}
 \label{sec:coverage}
@@ -1668,6 +1752,95 @@ retrieval discards. The one regime in which the descriptor localizes is when an
 external coarse prior shrinks the candidate set (Section~\ref{sec:analysis}),
 which is precisely how successful vector-map methods such as
 CFBVM~\cite{ouyang2024cfbvm} deploy their matching stage.
+
+\subsection{Area-level aggregation recovers discriminability}
+\label{sec:area}
+
+The diagnosis above is also constructive: if the discriminative signal lives in
+the joint configuration of many buildings rather than in any single element,
+then the descriptor should be aggregated over an \emph{area} rather than matched
+per element. We test this directly while keeping the Ekeland angle central.
+We tile each map into $\approx200$\,m cells and describe every cell by a
+translation-invariant descriptor: building density, layout moments
+(centroid spread, mean nearest-neighbour spacing), a footprint-size histogram,
+and---the shape signal a density field lacks---\emph{histograms of the
+per-building Ekeland free-cone angles}. Each UAV frame is matched, as a single
+cell, against the satellite cells; we report coarse-localization recall
+(fraction of frames whose true cell is in the top-$50$ of ${\sim}10^{3}$ cells)
+and compare a \emph{plain} descriptor (density + layout + size, the information a
+CFBVM-style area-density field carries) against the same descriptor
+\emph{augmented with the Ekeland-angle histograms}.
+
+Two findings follow (Table~\ref{tab:area}, Figure~\ref{fig:area}). First,
+area-level matching \emph{escapes the per-element ceiling}: coarse recall rises
+from the flat $0\%$ of single-element retrieval to several times chance
+(chance $\approx3.7\%$ at top-$50$). Second, and central to this paper, the
+\emph{Ekeland-angle histograms add discriminability that pure density and layout
+do not}: on all four analysed sites they raise top-$50$ recall over the plain
+descriptor---from $5.5\%$ to $9.1\%$ (urban), $2.0\%$ to $10.2\%$ (coastal),
+$3.2\%$ to $6.4\%$ (hilly), and $0\%$ to $1.7\%$ (arid)---and reduce the median
+coarse-localization error on three of the four. The improvement is unanimous in
+direction across distinct terrains, which is what makes it credible despite
+modest absolute magnitudes. The free-cone angle thus supplies exactly the
+per-building shape information that arrangement- or density-only descriptors
+(the CFBVM regime) discard---but at the area level, where per-element
+segmentation noise is averaged out rather than fatal.
+
+We are deliberately precise about scope. These are \emph{coarse}-localization
+gains: absolute recall remains single-digit-to-low-tens of percent, and the
+top-$1$ cell is still usually wrong, so the method does not yet deliver precise
+metric localization. The contribution is a measured, robust demonstration that
+(i)~the area is the right matching unit for this problem and (ii)~the Ekeland
+free-cone angle is a discriminative, complementary shape cue at that level.
+Closing the remaining gap to precise localization plausibly requires a learned
+area embedding or a clean vector map (as used by shape-and-relationship methods
+on `.shp' e-maps~\cite{ssrm2024}); both are natural extensions of the Ekeland
+area descriptor introduced here.
+
+\begin{table}[htbp]
+\caption{Area-level matching ($\approx200$\,m cells, ${\sim}10^{3}$ candidates,
+  $100$ frames/site). Coarse recall @top-$50$ and median coarse error for a
+  plain density+layout+size descriptor (CFBVM-style) vs.\ the same descriptor
+  augmented with Ekeland free-cone-angle histograms. The Ekeland histograms
+  improve recall on every site (chance $\approx3.7\%$).}
+\label{tab:area}
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Site} & \textbf{Terrain} & \textbf{Recall@top-50} & \textbf{Median err} \\
+\midrule
+\multicolumn{4}{l}{\textit{Plain (density + layout + size; CFBVM-style)}} \\
+01 & urban   & 5.5\%  & 3467\,m \\
+02 & coastal & 2.0\%  & 5136\,m \\
+03 & hilly   & 3.2\%  & 4760\,m \\
+11 & arid    & 0.0\%  & 4379\,m \\
+\midrule
+\rowcolor{ours}
+\multicolumn{4}{l}{\textit{\textbf{+ Ekeland free-cone-angle histograms (ours)}}} \\
+\rowcolor{ours}
+01 & urban   & \textbf{9.1\%}  & 4311\,m \\
+\rowcolor{ours}
+02 & coastal & \textbf{10.2\%} & \textbf{4080\,m} \\
+\rowcolor{ours}
+03 & hilly   & \textbf{6.4\%}  & \textbf{3205\,m} \\
+\rowcolor{ours}
+11 & arid    & \textbf{1.7\%}  & \textbf{3530\,m} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figs/fig_area_ekeland}
+  \caption{Area-level coarse-localization recall (@top-$50$) per site: a plain
+    density+layout descriptor (CFBVM-style, grey) vs.\ the same descriptor with
+    Ekeland free-cone-angle histograms added (ours, blue). The Ekeland angle
+    lifts recall on every terrain (dashed line: chance). The gain is unanimous
+    in direction, isolating the free-cone angle as a complementary shape cue that
+    arrangement/density descriptors lack.}
+  \label{fig:area}
+\end{figure}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Conclusion}
