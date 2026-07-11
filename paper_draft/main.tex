@@ -480,6 +480,15 @@ not tuned on any held-out split of UAV-VisLoc.
 \section{Method}
 \label{sec:method}
 
+Our pipeline has two phases, mirroring the design of successful vector-map
+localizers. \emph{Phase~1} (Steps 1--6, Sections~\ref{sec:preproc}--\ref{sec:refine})
+turns a single image into an ambiguous \emph{observation}---a set of candidate
+positions from purely geometric building-footprint matching. \emph{Phase~2}
+(Section~\ref{sec:phase2}) integrates these per-frame observations over a
+trajectory with a Gaussian-mixture/particle-filter estimator, exactly as
+CFBVM~\cite{ouyang2024cfbvm} and SWA-PF~\cite{yuan2025swapf} do. We describe
+Phase~1 first, as our descriptor is its core contribution.
+
 \begin{figure}[t]
 \centering
 \resizebox{\linewidth}{!}{%
@@ -1250,6 +1259,38 @@ coarse match itself is rarely correct at full-map scale, so this stage does not
 by itself change the localization outcome---it is included for completeness and
 for use once a coarse prior makes the winning region reliable.
 
+\subsection{Phase 2: Sequential Integration}
+\label{sec:phase2}
+
+Steps 1--6 constitute \emph{Phase 1}: given one image they produce a set of
+candidate positions, i.e.\ an \emph{observation}. Because a single frame's
+observation is ambiguous (Section~\ref{sec:analysis}), the accurate vector-map
+methods do not act on it directly---they integrate observations over a
+trajectory. CFBVM~\cite{ouyang2024cfbvm} describes each frame's matches as a
+Gaussian mixture and fuses them in a particle filter; SWA-PF~\cite{yuan2025swapf}
+runs a 4-DoF particle filter over semantic matches. We adopt the same
+\emph{Phase 2} design so that our descriptor can be evaluated as the matching
+stage of a complete pipeline.
+
+\noindent\textbf{Observation model.}
+For frame $t$, the Phase-1 matches vote for a UAV nadir position
+$N = p_j - (c_i - c_0)$ per matched pair $(i,j)$, where $c_0$ is the image
+centre; the resulting vote cloud is summarized as a Gaussian mixture
+$z_t(\mathbf{x}) \propto \sum_{m} \exp(-\|\mathbf{x}-\mu_m\|^2/2\sigma^2)$ over
+its modes.
+
+\noindent\textbf{Particle filter.}
+A set of $P$ particles $\{\mathbf{x}^{(p)}_t\}$ is propagated by a random-walk
+motion model (isotropic Gaussian of standard deviation matched to the measured
+inter-frame displacement) and weighted by the observation likelihood
+$z_t(\mathbf{x}^{(p)}_t)$; systematic resampling with a small global-reseed
+fraction recovers from divergence, and a credibility test down-weights frames
+whose vote cloud is diffuse (analogous to CFBVM's credibility indicator). The
+weighted mean is the per-frame position estimate.
+Section~\ref{sec:seq} evaluates this full two-phase pipeline; we find that
+Phase~2 cannot rescue localization here, and we trace the cause precisely to
+the Phase-1 observation model.
+
 \subsection{Implementation Details}
 \label{sec:impl}
 
@@ -1433,7 +1474,7 @@ Belongie-style shape context~\cite{belongie2002shape} computed over neighbouring
 building centroids), matching at the building rather than triangle level, and
 per-dimension standardization each \emph{reduce the true-match descriptor
 distance}---by up to $16\times$ (from $\ell_1\!=\!38$ to $2.4$ under
-standardization)---yet none lifts retrieval off $0\%$.
+standardization)---yet none lifts retrieval off $0\%$ (Figure~\ref{fig:disc}).
 
 This is the key diagnosis: the failure is not that the correct match is far in
 descriptor space, but that the descriptor is too \emph{low-entropy} to be
@@ -1444,11 +1485,14 @@ equally. Enriching per-element features cannot escape this, because the
 information that makes a \emph{location} unique is not carried by any single
 element---it is the spatial arrangement of many, which per-element retrieval
 does not exploit.
-Only when the search is constrained to a small area (a coarse prior of
-${\approx}0.2$\,km$^{2}$, last row) does error fall to $148$\,m---but this is
-the window mechanically bounding the error, not genuine identification: sub-$30$
-m recall is $2.1\%$, barely above the ${\approx}1.4\%$ expected from a uniform
-guess inside the window.
+Only when the search is constrained to a small area (a coarse prior) does the
+error fall---to $146$\,m at ${\approx}0.2$\,km$^{2}$---but this merely reflects
+the window mechanically bounding the error rather than genuine identification:
+sub-$30$\,m recall is $2.1\%$, barely above the ${\approx}1.4\%$ expected from a
+uniform guess inside the window, and the error grows monotonically with the
+search area, from $146$\,m at $0.2$\,km$^{2}$ to $2.2$\,km at $50$\,km$^{2}$
+(Figure~\ref{fig:scale}). The descriptor contributes almost no localization
+signal beyond what the prior supplies.
 
 \begin{table}[htbp]
 \caption{Discriminability analysis on Changjiang-20 ($N\!\approx\!4.8\times10^{5}$
@@ -1477,10 +1521,38 @@ Building-level shape               & ---  & 0.6\% & 3330 \\
 \quad + constellation context      & ---  & 0.3\% & 2562 \\
 \midrule
 \rowcolor{ours}
-5-D + context, search $\le0.2$\,km$^2$ (coarse prior) & --- & 1.5\% & 148 \\
+5-D + context, search $\le0.2$\,km$^2$ (coarse prior) & --- & 1.5\% & 146 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figs/fig_disc}
+  \caption{The discriminability ceiling on Changjiang-20
+    ($4.8\times10^{5}$ elements, $98$ queries).
+    (a)~Successive descriptor enrichments shrink the distance between a query
+    triangle and its geometrically correct satellite match by up to $16\times$
+    ($\ell_1\,38\!\to\!2.4$).
+    (b)~Yet the fraction of queries for which that correct match is retrieved
+    among the top-$K$ candidates stays at essentially $0\%$ across every
+    variant---below the chance rate expected inside the search window.
+    Shrinking the true-match distance shrinks the impostors' distances equally;
+    the descriptor is too low-entropy to be unique at scale.}
+  \label{fig:disc}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.74\linewidth]{figs/fig_scale}
+  \caption{Localization error versus the area of the (coarse-prior) search
+    window. The median error grows monotonically with the search area---from
+    $146$\,m at $0.2$\,km$^{2}$ to $2.2$\,km at $50$\,km$^{2}$, approaching the
+    full-map error (dashed)---showing that the accuracy in a small window is set
+    by the window bounding the error, not by the descriptor identifying the
+    location.}
+  \label{fig:scale}
+\end{figure}
 
 \subsection{Sequential integration does not recover it}
 \label{sec:seq}
@@ -1493,17 +1565,66 @@ descriptor. On a $100$-frame consecutive flight segment we run a particle filter
 ($2\times10^{4}$ particles, random-walk motion of $\approx\!266$\,px/frame
 matching the measured inter-frame displacement) whose per-frame observation is
 the Gaussian-mixture of our descriptor's Hough votes.
-It does not converge: the trajectory-level error stays at kilometre scale and
-sub-$100$\,m recall is $0\%$.
+It does not converge (Table~\ref{tab:seq}, Figure~\ref{fig:seq}): the
+trajectory-level error stays at kilometre scale (filtered median $5.5$\,km,
+\emph{worse} than the single-frame median of $3.2$\,km, because the filter
+commits to a spuriously consistent wrong track) and sub-$100$\,m recall is $0\%$.
 The diagnostic explains why: the true position receives \emph{any} vote in only
-$12\%$ of frames (median $0$ votes/frame), and when present its region ranks
-$\approx\!123$rd. A particle filter integrates a signal that \emph{recurs};
-ours is absent from $88\%$ of frames, so the filter instead locks onto a
-spuriously consistent wrong track. The limiting factor is thus the
+$12\%$ of frames (median $0$ votes/frame; Figure~\ref{fig:seq}a), and when
+present its region ranks $\approx\!123$rd. A particle filter integrates a signal
+that \emph{recurs}; ours is absent from $88\%$ of frames, so the filter locks
+onto a spurious track (Figure~\ref{fig:seq}b). The limiting factor is thus the
 \emph{observation model}: unlike CFBVM's area-density descriptor, our
 per-element geometric descriptor does not provide recurring, spatially
 consistent support for the true location, which no downstream filter can
-manufacture.
+manufacture. Figure~\ref{fig:votecloud} makes this concrete on one frame---the
+descriptor's votes scatter across the entire map rather than concentrating at
+the true position.
+
+\begin{table}[htbp]
+\caption{Two-phase pipeline on a $100$-frame Changjiang-20 trajectory. Phase~2
+  (particle-filter integration of the per-frame Phase~1 matches) does not
+  recover localization, because Phase~1's observation supports the true position
+  in only $12\%$ of frames.}
+\label{tab:seq}
+\centering\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lc}
+\toprule
+\textbf{Estimator} & \textbf{Median error (m)$\downarrow$} \\
+\midrule
+Phase 1 only (single-frame Hough vote)        & 3214 \\
+Phase 1 + Phase 2 (particle filter)           & 5507 \\
+\midrule
+Frames with any support at true position      & $12\%$ \\
+Sub-$100$\,m recall                            & $0\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.86\linewidth]{figs/fig_seq}
+  \caption{Why sequential integration fails.
+    (a)~Votes landing at the true position, per frame along the trajectory: the
+    true location is supported in only $12\%$ of frames (median $0$).
+    (b)~Position error per frame: the particle filter (red) never converges and
+    drifts onto a wrong track, no better than the raw single-frame estimate
+    (grey). A filter cannot integrate a signal that is absent from $88\%$ of
+    frames.}
+  \label{fig:seq}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[height=0.42\textheight]{figs/fig_votecloud}
+  \caption{Descriptor votes (orange) for a single, best-supported query frame,
+    overlaid on the Changjiang-20 map; the true UAV position is the green star.
+    The votes scatter across the entire $\approx\!100$\,km$^2$ map instead of
+    concentrating at the truth---a direct visualization of the discriminability
+    ceiling.}
+  \label{fig:votecloud}
+\end{figure}
 
 \paragraph{Runtime and scale.}
 The pipeline is nonetheless efficient and compact, as intended:
