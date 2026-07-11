@@ -89,9 +89,18 @@ def triangle_descriptor(
     return np.asarray([alpha1, alpha2, eke_sorted[0], eke_sorted[1], eke_sorted[2]], dtype=np.float32)
 
 
+def _tri_area_perimeter(v0: VertexXY, v1: VertexXY, v2: VertexXY) -> Tuple[float, float]:
+    """Shoelace area and perimeter of a triangle (in the input coordinate units)."""
+    area = 0.5 * abs(
+        v0[0] * (v1[1] - v2[1]) + v1[0] * (v2[1] - v0[1]) + v2[0] * (v0[1] - v1[1])
+    )
+    perim = _dist(v0, v1) + _dist(v1, v2) + _dist(v2, v0)
+    return float(area), float(perim)
+
+
 def triangle_descriptors_from_polygon(
-    polygon_xy: Sequence[Sequence[float]], max_depth: int = 4
-) -> Tuple[np.ndarray, np.ndarray]:
+    polygon_xy: Sequence[Sequence[float]], max_depth: int = 4, include_size: bool = False
+):
     """CDT a polygon and return ``(descriptors (T,5), centroids (T,2))``.
 
     Vertices are the polygon's own vertices (no Steiner points). The triangulation
@@ -99,15 +108,23 @@ def triangle_descriptors_from_polygon(
     :func:`_interior_simplex_mask`), matching the Constrained Delaunay
     Triangulation of paper §4.3. ``max_depth`` is the paper's kernel-expansion
     cap ``D_max`` (Algorithm 1, default 4).
+
+    If ``include_size`` is True, also returns a third array ``sizes (T,2)`` of
+    ``[area, perimeter]`` per triangle in the polygon's coordinate units - used
+    to test whether adding scale-carrying dimensions rescues descriptor
+    discriminability (the pure-angle 5-D descriptor is too low-entropy at
+    database scale). Backward-compatible: default returns the 2-tuple.
     """
     polygon_np = np.asarray(polygon_xy, dtype=np.float64)
+    empty = (np.zeros((0, 5), np.float32), np.zeros((0, 2), np.float32))
+    empty_sz = np.zeros((0, 2), np.float32)
     if polygon_np.shape[0] < 3:
-        return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
+        return (*empty, empty_sz) if include_size else empty
 
     try:
         tri = Delaunay(polygon_np)
     except Exception:
-        return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
+        return (*empty, empty_sz) if include_size else empty
 
     interior_mask = _interior_simplex_mask(tri, polygon_np)
     expansion_results = compute_expansion_ekeland_for_all_triangles(
@@ -116,6 +133,7 @@ def triangle_descriptors_from_polygon(
 
     descriptors: List[np.ndarray] = []
     centroids: List[np.ndarray] = []
+    sizes: List[np.ndarray] = []
     for result in expansion_results:
         verts = result["seed_vertices"]
         coords = result["seed_coordinates"]
@@ -139,8 +157,12 @@ def triangle_descriptors_from_polygon(
                 dtype=np.float32,
             )
         )
+        if include_size:
+            sizes.append(np.asarray(_tri_area_perimeter(v0, v1, v2), dtype=np.float32))
 
     if not descriptors:
-        return np.zeros((0, 5), dtype=np.float32), np.zeros((0, 2), dtype=np.float32)
+        return (*empty, empty_sz) if include_size else empty
 
+    if include_size:
+        return np.vstack(descriptors), np.vstack(centroids), np.vstack(sizes)
     return np.vstack(descriptors), np.vstack(centroids)

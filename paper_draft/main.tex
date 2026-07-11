@@ -62,10 +62,11 @@ Delaunay Triangulation and Ekeland Free-Cone Angle Descriptors}}
 \begin{abstract}
 Accurate geo-localization of unmanned aerial vehicles (UAVs) in GPS-denied
 environments remains a core challenge for autonomous navigation.
-We propose a scene-agnostic absolute visual localization framework that
-identifies the UAV's 2-D geographic position by matching a single nadir image
-against a geo-referenced satellite map using purely geometric building
-footprint descriptors, requiring no scene-specific training.
+We study a scene-agnostic, training-free approach that seeks the UAV's 2-D
+geographic position by matching purely geometric building-footprint descriptors
+extracted from a single nadir image against a geo-referenced satellite map, and
+we provide a rigorous analysis of where and why this appealing paradigm
+succeeds and fails.
 Buildings are segmented by a pre-trained Mask R-CNN; each polygon is
 decomposed into triangles by Constrained Delaunay Triangulation (CDT), and
 each triangle is encoded with a 5-dimensional descriptor
@@ -86,9 +87,28 @@ $P_{\mathrm{sub}}$ at $v$, computed in $O(1)$ per vertex by an
 edge-anchored half-plane construction with no sweep required.
 Satellite patch descriptors are indexed offline in a KD-tree ($\ell_1$ metric);
 online matching runs in $O(M\log N)$ time per query.
-Quantitative evaluation on the UAV-VisLoc benchmark, ablation study, season
-and altitude stratifications, and sensitivity analyses are to be reported
-(TBR) upon completion of full experiments.
+We evaluate this pipeline rigorously on the UAV-VisLoc benchmark and report a
+central negative result with a precise diagnosis.
+Building coverage at the true location is high ($93\%$), yet single-frame
+descriptor retrieval fails at city scale: the geometrically correct match is
+essentially never among the top-ranked candidates (retrieval ${<}1\%$) and
+localization error remains at the kilometre level.
+This ceiling is one of descriptor \emph{discriminability}, not of coverage or
+feature scaling---enriching the descriptor with building size and a log-polar
+building-constellation context, matching at building rather than triangle
+granularity, and normalizing feature dimensions each shrink the true-match
+descriptor distance by up to $16\times$ yet leave retrieval near zero.
+Following the coarse-to-fine, particle-filter paradigm of successful vector-map
+methods, we further integrate the per-frame matches over a flight trajectory
+with a Gaussian-mixture observation and a particle filter; this too fails to
+converge, because the true position receives recurring observation support in
+only $12\%$ of frames.
+We conclude that the limiting factor is the \emph{observation model}: purely
+geometric per-element matching does not supply the recurring, spatially
+consistent support that sequential estimation requires at scale, and must be
+paired with a stronger area-level observation or a learned embedding.
+Our analysis provides the missing empirical account of why training-free
+geometric matching, though attractive, does not by itself scale.
 \end{abstract}
 
 % ─────────────────────────────────────────────────────────────────────────────
@@ -150,14 +170,14 @@ we instantiate this cone not over a function graph but over a 2-D polygon
 boundary, yielding a scalar that encodes \emph{how much local geometric
 freedom exists at each building vertex}.
 
-The ability to localize a UAV without GPS, without scene-specific training,
-and with only a pre-stored satellite map represents a step toward truly
-\emph{map-portable autonomy}: a platform pre-loaded with satellite imagery of
-any new city can begin operating immediately upon arrival, with no training
-phase required.
-This capability has direct implications for rapid disaster response, military
-forward deployment, and commercial UAV scalability where per-scene model
-training is operationally infeasible.
+Training-free geometric localization is an appealing route to
+\emph{map-portable autonomy}---a platform pre-loaded with satellite imagery of
+any new city operating immediately, with no training phase.
+This paper asks, and answers rigorously, whether purely geometric per-element
+matching can deliver it: we find that it cannot at city scale, and we
+characterize precisely why, turning an aspirational claim into a measured
+account of the paradigm's limits and of what a viable observation model must
+provide.
 
 \paragraph{Contributions.}
 \begin{enumerate}
@@ -173,18 +193,23 @@ training is operationally infeasible.
       geometrically motivated: the kept sector's bounding ray is tangent to the
       polygon boundary, the same picture as Ekeland's ``cone touches but does
       not cross'' condition.
-\item \textbf{5-D geometric feature}
-      $f = (\alpha_1,\alpha_2,e_1,e_2,e_3)$ combining two sorted interior
-      angles and three independently sorted MFCAs, providing complementary
-      shape and free-space context (Section~\ref{sec:feat}).
-\item \textbf{Scalable offline index.}
-      Satellite patch descriptors are indexed in a KD-tree with $\ell_1$ metric,
-      reducing online position matching from $O(MN)$ to $O(M\log N)$
-      (Section~\ref{sec:kdtree}).
-\item \textbf{Plurality-vote position estimator.}
-      UAV triangle votes aggregate over satellite patches; the patch with the
-      highest inlier vote count yields the predicted geographic position
-      (Section~\ref{sec:vote}).
+\item \textbf{5-D geometric feature and matching pipeline.}
+      A descriptor $f = (\alpha_1,\alpha_2,e_1,e_2,e_3)$ combining two sorted
+      interior angles and three sorted MFCAs (Section~\ref{sec:feat}), with a
+      complete training-free pipeline---instance segmentation, CDT, KD-tree
+      index ($\ell_1$, $O(M\log N)$ online matching), and a
+      translation-consensus position estimator (Sections~\ref{sec:kdtree}--\ref{sec:vote}).
+\item \textbf{A rigorous discriminability study on UAV-VisLoc.}
+      Using a truth-anchored retrieval diagnostic, we show that per-element
+      geometric matching hits a \emph{discriminability ceiling} at city scale
+      (retrieval $0\%$ in the top-$20$ despite $93\%$ coverage), that it is
+      robust to a battery of descriptor enrichments (size, constellation
+      context, building-level granularity, normalization---each shrinking the
+      true-match distance up to $16\times$ without effect), and that a
+      CFBVM-style particle filter cannot recover it because the true position is
+      supported in only $12\%$ of frames. We conclude that the limiting factor
+      is the observation model, and identify what a scale-robust one must
+      supply (Sections~\ref{sec:analysis}--\ref{sec:seq}).
 \end{enumerate}
 
 \paragraph{Scope and assumptions.}
@@ -195,8 +220,9 @@ compass/IMU to within $\pm5^\circ$ (standard for consumer autopilots), and
 The descriptor and matching stages require \emph{no training data specific to
 the target scene}; only the Mask R-CNN backbone is pre-trained on public aerial
 building datasets~\cite{ji2018building,fang2021building}.
-We quantify the sensitivity to heading error and to building absence
-experimentally (Section~\ref{sec:sensitivity}).
+We analyze the pipeline's behavior---including the role of building coverage
+and the discriminability of the geometric descriptor---experimentally
+(Section~\ref{sec:analysis}).
 
 \paragraph{Broader impact.}
 A lightweight, training-free geo-localizer could benefit emergency response,
@@ -586,8 +612,9 @@ $s = h_{\mathrm{ref}} / h$ to a reference altitude $h_{\mathrm{ref}} = 400$\,m
 rather than the exact GSD ratio; since the downstream descriptor uses only
 angular quantities, this affects segmentation scale consistency but not
 descriptor validity.
-The residual scale mismatch is quantified by the GSD-sensitivity experiment
-(Section~\ref{sec:sensitivity}).
+The residual scale mismatch is removed by an empirical calibration of the crop
+factor so that building sizes match between the UAV and satellite branches
+(Section~\ref{sec:analysis} uses this calibrated setting).
 
 \subsection{Building Segmentation (Step 2)}
 \label{sec:seg}
@@ -968,7 +995,7 @@ Because $\alpha(X)$ is a fixed property of $P_{\mathrm{sub}}$ at $X$ and does
 not depend on \emph{which} of the four axis-parallel rays is drawn, $e_X$
 itself never depends on an axis choice: there is no discrete decision
 boundary at which $e_X$ can jump as the coordinate frame rotates.
-Compass-heading error (Section~\ref{sec:sensitivity}) therefore propagates
+Compass-heading error therefore propagates
 into the pipeline only through the Step~1b yaw-alignment image rotation
 (which changes which triangles Mask~R-CNN segments and how CDT triangulates
 them), never through a discontinuity internal to $e_X$'s own definition.
@@ -1050,9 +1077,9 @@ Theorem~\ref{thm:discriminative} and Corollary~\ref{cor:separation} further
 show that the $\ell_1$ separation between two same-shape triangles placed in
 geometrically different buildings is at least $\Delta = \min_i |e_i^t - e_i^{t'}|$,
 where the difference is determined by the $P_{\mathrm{sub}}$ expansion geometry.
-The kernel-expansion rows of Table~\ref{tab:ablation}
-($D_{\max} \in \{0,1,2,8\}$, where $D_{\max}=0$ removes the expansion context
-entirely) quantify this experimentally.
+The kernel-expansion depth $D_{\max}$ controls how much surrounding context is
+incorporated ($D_{\max}=0$ removes the expansion entirely, reducing $e$ to the
+convex value $180^\circ$).
 
 \paragraph{5-D descriptor assembly.}
 The MFCA triplet is sorted in ascending order to yield $(e_1 \le e_2 \le e_3)$,
@@ -1216,14 +1243,12 @@ never degrades the estimate.
 
 \paragraph{Technical advantage.}
 Because $\hat{t}$ is estimated from a robust inlier consensus rather than a
-single correspondence, refinement tolerates individual false matches within
-the winning patch; its per-query reliability is diagnosable directly from the
-inlier and correspondence counts, reported alongside the vote-margin
-diagnostics (Section~\ref{sec:exp}).
-Table~\ref{tab:ablation} quantifies the coarse-vs-refined comparison, and
-Table~\ref{tab:main}'s Recall@10m/20m/50m columns reflect the refined
-position (Section~\ref{sec:protocol} notes the quantization floor this
-removes).
+single correspondence, refinement tolerates individual false matches within the
+winning region. We note, however, that refinement only sharpens an already
+\emph{correct} coarse match; our analysis (Section~\ref{sec:analysis}) shows the
+coarse match itself is rarely correct at full-map scale, so this stage does not
+by itself change the localization outcome---it is included for completeness and
+for use once a coarse prior makes the winning region reliable.
 
 \subsection{Implementation Details}
 \label{sec:impl}
@@ -1263,83 +1288,69 @@ Position output & Estimator                    & Plurality patch vote \\
 \subsection{Evaluation Protocol}
 \label{sec:protocol}
 
-We evaluate on all 11 UAV-VisLoc sites, using every UAV image of each site as
-a query (Section~\ref{sec:dataset}, query protocol).
-Localization error is the ground distance between the predicted and
-ground-truth positions, computed from the map's georeferenced bounds under an
-equirectangular approximation at the map's centre latitude.
-Six metrics are reported, following the compendium in Section~\ref{sec:related}
-and the field conventions established by CFBVM~\cite{ouyang2024cfbvm},
-SWA-PF~\cite{yuan2025swapf}, and the UAV-VisLoc benchmark~\cite{uavvisloc2024}:
-(i)~\textbf{Mean error} (m): primary metric for direct comparison with CFBVM
-and Nassar et al.;
-(ii)~\textbf{Median error} (m): robust to outliers on sparse-building sites;
-(iii)~\textbf{RMSE} (m): penalizes large outlier errors; primary metric for
-SWA-PF comparison;
-(iv)~\textbf{R@10m / R@20m / R@50m} (\%), the fraction of queries within
-10/20/50\,m of ground truth: R@10m measures fine-grained urban discrimination,
-while R@50m is essential for sparse-building terrain (Shandan desert, Taizhou
-farmland) where the method is expected to degrade;
-(v)~\textbf{Runtime} (s), end-to-end wall-clock time from raw image to 2-D
-position output, broken down into preprocessing, segmentation, descriptor
-extraction, and KD-tree query;
-(vi)~\textbf{Coverage} (\%), the fraction of queries yielding at least one
-descriptor.
-
-\paragraph{Reproducibility.}
-A single entry point (\texttt{eval.py} in the released code) reproduces every
-``Ours'' number and figure in this section: it builds the per-site descriptor
-databases, runs all queries and sensitivity sweeps, recomputes the ablation
-variants from cached segmentation polygons (so no ablation requires re-running
-Mask R-CNN), and emits the populated tables and plots.
-All stages are deterministic given the released Mask R-CNN checkpoint.
-
-\paragraph{Cross-dataset annotation policy.}
-Following the comparability protocol recommended by the benchmark community,
-we use three annotation tiers: ($\dagger$)~results from the method's original
-paper on its own dataset---not UAV-VisLoc; cited for qualitative positioning
-only, not numerical comparison; ($\ddagger$)~method re-implemented and
-evaluated by us on UAV-VisLoc; ($\S$)~multi-frame sequential method, for which
-single-frame comparison is unfair.
-
-All baselines that support heading input are evaluated under identical
-preprocessing with the $\pm5^\circ$ heading assumption; our method is also
-reported without heading alignment to quantify sensor dependency.
+We evaluate on the UAV-VisLoc benchmark, focusing the detailed analysis on the
+Changjiang-20 site (site~01; a ${\approx}9{,}774\times26{,}762$\,px map yielding
+$N\!\approx\!4.8\times10^{5}$ indexed building triangles) using its full set of
+$817$ UAV images, and we cross-check the conclusions on the sparse-building
+Shandan desert site.
+Rather than reporting only a single position error---which, as we show below, is
+governed by matching failure rather than by the estimator---we instrument the
+pipeline to isolate \emph{where} it breaks, and report:
+(i)~\textbf{Coverage} (\%): the fraction of query locations whose true position
+has at least one segmented satellite building nearby, which upper-bounds
+achievable recall;
+(ii)~\textbf{Retrieval} (\%): a truth-anchored diagnostic---for each UAV triangle
+whose correct satellite counterpart is fixed by ground truth, the fraction for
+which that geometrically correct match appears among the top-$K$ nearest
+descriptors. This measures descriptor \emph{discriminability} directly,
+independent of any voting or refinement stage;
+(iii)~\textbf{Position error} (m), with recall at $30/50/100$\,m: the ground
+distance between the true position and the prediction obtained by aggregating
+the per-triangle matches with a translation-consensus (Hough) vote;
+(iv)~\textbf{Sequential error} (m): the error of a trajectory-level estimate that
+integrates the per-frame matches with a Gaussian-mixture observation and a
+particle filter (Section~\ref{sec:seq}), following the coarse-to-fine,
+particle-filter paradigm of CFBVM~\cite{ouyang2024cfbvm} and
+SWA-PF~\cite{yuan2025swapf}.
+All experiments are reproducible from the released code and the fixed,
+pre-trained Mask R-CNN checkpoint; no component is trained on UAV-VisLoc.
 
 \subsection{Main Comparison}
 \label{sec:main_comp}
 
-Table~\ref{tab:main} presents the full comparison.
-The table includes all method families from the UAV visual localization
-literature and is organized by taxonomy: classical/training-free, then
-segmentation-based (sharing our pipeline's mask step), then learning-based.
-Methods marked ($\dagger$) are reported on their original paper's dataset and
-are included for landscape context; only methods re-implemented on UAV-VisLoc
-(marked $\ddagger$, or \emph{ours}) support direct numerical comparison.
-Multi-frame sequential methods (marked $\S$) are reported for reference but
-are not directly comparable to single-frame results.
-
-A key structural observation: among the five methods that also use
-segmentation or masking (BRM, Nassar, CFBVM, SWA-PF, Hierarchical
-Matching~\cite{hieruav2025}), none applies instance-level polygon extraction
-followed by a purely geometric, training-free descriptor.
-Our method is the first to combine (a)~instance segmentation for polygon
-footprints, (b)~Delaunay triangulation on those footprints, and
-(c)~Ekeland free-cone encoding with no scene-specific training.
+Table~\ref{tab:main} places our pipeline in the landscape of UAV
+geo-localization, organized by taxonomy: classical/training-free, then
+segmentation-based, then learning-based.
+We stress that these are the methods' own reported numbers on their own
+datasets and are not mutually comparable; the table is context, not a ranking.
+The salient pattern is structural rather than numerical: \emph{every} method
+that attains metre-level accuracy is either multi-frame/sequential ($^\S$;
+SWA-PF, LSVL), learning-based (FPI, Kinnari, Hier.\ Match.), or built on a
+coarse-to-fine particle filter over an area-level descriptor (CFBVM).
+None achieves it by single-frame, training-free, per-element geometric
+retrieval---the exact regime our descriptor targets.
+Our contribution is (a)~a novel instance-segmentation\,$\to$\,CDT\,$\to$\,Ekeland
+free-cone descriptor with no scene-specific training, and (b)~a rigorous account,
+below, of why this regime does not by itself reach the accuracy of the methods
+above, and precisely what it lacks.
 
 \begin{table*}[htbp]
 \caption{%
-  Localization comparison on UAV-VisLoc (all 11 sites, single-frame, unless noted).
-  $^\dagger$ Original paper's dataset; \emph{not} directly comparable to our UAV-VisLoc results.
-  $^\ddagger$ Re-implemented on UAV-VisLoc by us.
-  $^\S$ Multi-frame sequential method; single-frame comparison unfair.
-  $^*$ Scene-specific training required.
-  N/R = not reported by the source under this metric (FPI reports
-  Meter-level Accuracy and a Relative Distance Score, RDS\,=\,57.22, rather
-  than mean/median/RMSE/Recall@$k$).
-  Our R@10m is at the patch-grid quantization floor (Section~\ref{sec:protocol});
-  Table~\ref{tab:retrieval}'s rank-based recall is quantization-free.
-  \textbf{Best training-free result on UAV-VisLoc in bold.}
+  Reported localization accuracy of representative UAV geo-localization methods,
+  provided as \emph{landscape context}.
+  These numbers are on each method's own dataset and settings and are
+  \emph{not} directly comparable to one another or to ours; we include them to
+  situate the problem, not to claim a ranking.
+  Crucially, the accurate methods are either multi-frame/sequential ($^\S$),
+  learning-based ($^*$/CNN), or use a coarse-to-fine particle filter (CFBVM,
+  SWA-PF)---none is single-frame training-free per-element matching.
+  Our approach (last row) does \emph{not} reach this accuracy under single-frame
+  matching; Section~\ref{sec:analysis} isolates why, and
+  Section~\ref{sec:seq} shows a sequential filter does not recover it either.
+  $^\dagger$ original paper's own dataset;
+  $^\S$ multi-frame sequential;
+  $^*$ scene-specific training;
+  N/R: FPI reports Meter-level Accuracy / RDS\,=\,57.22, not mean/median/RMSE.
 }
 \label{tab:main}
 \centering\small
@@ -1381,242 +1392,136 @@ LSVL$^\S$$^\dagger$~\cite{kinnari2023lsvl}
 FPI$^*$$^\dagger$~\cite{dai2022fpi}
   & No & Scene & N/R & N/R & N/R & N/R & N/R & N/R \\
 \midrule
-\multicolumn{9}{l}{\textit{Ours (UAV-VisLoc, direct comparison)}} \\
+\multicolumn{9}{l}{\textit{Ours (UAV-VisLoc site 01, single-frame per-element matching)}} \\
 \rowcolor{ours}
-\textbf{MFCA (w/ heading)}
-  & \textbf{MaskRCNN} & \textbf{No}
-  & \textbf{TBR} & \textbf{TBR} & \textbf{TBR} & \textbf{TBR} & \textbf{TBR} & \textbf{0.8} \\
-\rowcolor{ours}
-\textbf{MFCA (w/o heading)}
-  & \textbf{MaskRCNN} & \textbf{No}
-  & \textbf{TBR} & \textbf{TBR} & \textbf{TBR} & \textbf{TBR} & \textbf{TBR} & \textbf{TBR} \\
+MFCA (ours)$^{\P}$
+  & MaskRCNN & No
+  & 3492 & 3355 & --- & 0.0 & 0.0 & 0.8 \\
 \bottomrule
 \end{tabular}
+\par\smallskip
+{\footnotesize $^{\P}$ Single-frame per-element geometric matching over the full
+$4.8\times10^{5}$-element map. The kilometre-scale error is not an estimator
+artefact: the correct match is retrieved in $0\%$ of the top-$20$
+(Section~\ref{sec:analysis}). We report it to be transparent about the regime in
+which purely geometric matching operates, not as a competitive result.}
 \end{table*}
 
 \subsection{Per-Site Breakdown}
 
-Table~\ref{tab:persite} reports mean localization error per UAV-VisLoc site.
-Urban and lake-edge sites (Changjiang, Huzhou) are expected to benefit from
-dense building coverage; sparse-building and forested sites (Shandan, Zhuxi)
-represent the method's primary failure modes.
+\subsection{Coverage is not the bottleneck}
+\label{sec:coverage}
+
+We first rule out the obvious failure mode. For $92.9\%$ of queries, the true
+UAV location has at least one segmented satellite building within $150$\,m
+(Table~\ref{tab:analysis}, first row): the correct place is present in the map
+and is segmented. Any localization failure is therefore a \emph{matching}
+failure, not a coverage or segmentation-recall failure.
+
+\subsection{The discriminability ceiling}
+\label{sec:analysis}
+
+Table~\ref{tab:analysis} reports the truth-anchored retrieval and position
+error under a sequence of increasingly informative descriptors, all on the same
+segmentation output of the Changjiang-20 site ($N\!\approx\!4.8\times10^{5}$
+building triangles, $98$ queries with ground truth).
+The finding is stark and consistent: \emph{the geometrically correct match is
+retrieved in $0\%$ of the top-$20$}, and the position error stays at the
+kilometre scale, regardless of how the descriptor is enriched.
+Adding building size, a log-polar building-constellation context (a
+Belongie-style shape context~\cite{belongie2002shape} computed over neighbouring
+building centroids), matching at the building rather than triangle level, and
+per-dimension standardization each \emph{reduce the true-match descriptor
+distance}---by up to $16\times$ (from $\ell_1\!=\!38$ to $2.4$ under
+standardization)---yet none lifts retrieval off $0\%$.
+
+This is the key diagnosis: the failure is not that the correct match is far in
+descriptor space, but that the descriptor is too \emph{low-entropy} to be
+\emph{unique}. At $10^{5}$--$10^{6}$ candidate elements, thousands of
+geometrically near-identical footprints sit as close to the query as the true
+one does; shrinking the true-match distance shrinks the impostors' distances
+equally. Enriching per-element features cannot escape this, because the
+information that makes a \emph{location} unique is not carried by any single
+element---it is the spatial arrangement of many, which per-element retrieval
+does not exploit.
+Only when the search is constrained to a small area (a coarse prior of
+${\approx}0.2$\,km$^{2}$, last row) does error fall to $148$\,m---but this is
+the window mechanically bounding the error, not genuine identification: sub-$30$
+m recall is $2.1\%$, barely above the ${\approx}1.4\%$ expected from a uniform
+guess inside the window.
 
 \begin{table}[htbp]
-\caption{Per-site mean localization error (m). All TBR upon full experiments.
-  ($\ddagger$) = re-implemented on UAV-VisLoc by us.
-  ($\dagger$) = original paper numbers, different dataset.}
-\label{tab:persite}
-\centering\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{llcccccc}
-\toprule
-\textbf{Site} & \textbf{Terrain} & \textbf{Alt.} &
-\textbf{Ours} & \textbf{ORB$^\ddagger$} & \textbf{CFBVM$^\ddagger$} &
-\textbf{R@10m} & \textbf{R@50m} \\
-\midrule
-Changjiang-20 & Urban/River   & 405\,m  & TBR & TBR & TBR & TBR & TBR \\
-Changjiang-23 & Urban/River   & 405\,m  & TBR & TBR & TBR & TBR & TBR \\
-Huzhou-3      & Urban/Lake    & 551\,m  & TBR & TBR & TBR & TBR & TBR \\
-Huzhou-6      & Urban/Lake    & 546\,m  & TBR & TBR & TBR & TBR & TBR \\
-Zhuxi         & Hill/Forest   & 840\,m  & TBR & TBR & TBR & TBR & TBR \\
-Huailai       & Semi-arid     & 772\,m  & TBR & TBR & TBR & TBR & TBR \\
-Yunnan        & Mountain      & ---     & TBR & TBR & TBR & TBR & TBR \\
-Taizhou-6     & Coastal/Agri  & 542\,m  & TBR & TBR & TBR & TBR & TBR \\
-Taizhou-1     & Coastal/Agri  & 466\,m  & TBR & TBR & TBR & TBR & TBR \\
-Donghuayuan   & River Valley  & 688\,m  & TBR & TBR & TBR & TBR & TBR \\
-Shandan       & Desert        & ---     & TBR & TBR & TBR & TBR & TBR \\
-\midrule
-\textbf{All}  &               &         & \textbf{TBR} & TBR & TBR & \textbf{TBR} & \textbf{TBR} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Stratified Analysis}
-\label{sec:stratified}
-
-\paragraph{Season breakdown.}
-Table~\ref{tab:season} reports mean error by season to validate the
-appearance-invariance claim---a method that degrades significantly between
-summer and autumn does not achieve the claimed seasonal robustness.
-
-\begin{table}[htbp]
-\caption{Mean error (m) by season. TBR.}
-\label{tab:season}
-\centering\small
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{lccc}
-\toprule
-\textbf{Season} & \textbf{Ours} & \textbf{ORB} & \textbf{CFBVM} \\
-\midrule
-Summer          & TBR & TBR & TBR \\
-Autumn          & TBR & TBR & TBR \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Altitude-band breakdown.}
-Table~\ref{tab:altitude} reports performance by altitude band.
-Higher altitudes reduce the number of triangles per query image (larger GSD,
-fewer building details visible), testing the robustness to reduced descriptor
-density; average triangle counts per altitude band are also reported.
-
-\begin{table}[htbp]
-\caption{Performance by altitude band. TBR.}
-\label{tab:altitude}
-\centering\small
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{lccc}
-\toprule
-\textbf{Altitude band} & \textbf{Mean (m)$\downarrow$} & \textbf{R@20m$\uparrow$} & \textbf{Avg.\ $M$/query} \\
-\midrule
-400--700\,m   & TBR & TBR & TBR \\
-700--1200\,m  & TBR & TBR & TBR \\
-1200--2000\,m & TBR & TBR & TBR \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Ablation Study}
-
-Table~\ref{tab:ablation} isolates the contribution of each design choice:
-descriptor-component ablations (interior angles vs.\ MFCA, the depth of the
-kernel expansion that gives the MFCA its context), the retrieval metric, and
-$K$ / voting-strategy ablations.
-All descriptor variants are recomputed from the cached segmentation polygons
-of the main run, so every row shares identical segmentation output and differs
-in exactly one component.
-The row $D_{\max}=0$ disables kernel expansion entirely
-($P_{\mathrm{sub}} = T$, hence $e \equiv (180^\circ,180^\circ,180^\circ)$),
-quantifying the total contribution of the Ekeland context beyond raw triangle
-shape.
-
-\begin{table}[htbp]
-\caption{Ablation study. All TBR; each row modifies one component.}
-\label{tab:ablation}
+\caption{Discriminability analysis on Changjiang-20 ($N\!\approx\!4.8\times10^{5}$
+  building elements, $98$ queries). Retrieval = fraction of query triangles whose
+  geometrically correct satellite match is in the top-$20$ (top-$100$ for the
+  building rows); Error = median translation-consensus position error.
+  Every descriptor enrichment shrinks the true-match distance yet leaves
+  retrieval at $0\%$: the ceiling is discriminability, not distance.}
+\label{tab:analysis}
 \centering\small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcc}
-\toprule
-\textbf{Variant} & \textbf{Mean (m)$\downarrow$} & \textbf{R@20m$\uparrow$} \\
-\midrule
-\multicolumn{3}{l}{\textit{Descriptor component ablations}} \\
-Interior angles only ($\alpha_1,\alpha_2$)                      & TBR & TBR \\
-MFCA only ($e_1,e_2,e_3$)                                       & TBR & TBR \\
-No kernel expansion ($D_{\max}=0$; $e\equiv180^\circ$)           & TBR & TBR \\
-Full 5-D CDT, $\ell_2$ distance                                       & TBR & TBR \\
-Full 5-D CDT, $D_{\max}=1$                                       & TBR & TBR \\
-Full 5-D CDT, $D_{\max}=2$                                       & TBR & TBR \\
-Full 5-D CDT, $D_{\max}=8$                                       & TBR & TBR \\
-\midrule
-\multicolumn{3}{l}{\textit{Matching and voting ablations}} \\
-Top-1 match (no voting)                                         & TBR & TBR \\
-Distance-weighted voting                                        & TBR & TBR \\
-$K=1$                                                           & TBR & TBR \\
-$K=3$                                                           & TBR & TBR \\
-$K=10$                                                          & TBR & TBR \\
-$K=20$                                                          & TBR & TBR \\
-\midrule
-Coarse patch centroid (no sub-patch refinement, Sec.~\ref{sec:refine})  & TBR & TBR \\
-\midrule
-\rowcolor{ours}
-\textbf{Full 5-D CDT, edge-anchored Ekeland angle, $\ell_1$, $D_{\max}=4$, $K=5$, + RANSAC refine}
-  & \textbf{TBR} & \textbf{TBR} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[htbp]
-\caption{Rank-based retrieval recall: fraction of queries whose ground-truth
-  patch is ranked within the top-$N$ plurality-vote candidates. Unlike
-  Recall@$N$m, this is not bounded by the patch-grid quantization floor
-  (Section~\ref{sec:protocol}). All TBR.}
-\label{tab:retrieval}
-\centering\small
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{lc}
-\toprule
-\textbf{Metric} & \textbf{Recall (\%)$\uparrow$} \\
-\midrule
-Recall@1 (vote rank)   & TBR \\
-Recall@10 (vote rank)  & TBR \\
-Recall@50 (vote rank)  & TBR \\
-Recall@100 (vote rank) & TBR \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Sensitivity Analysis}
-\label{sec:sensitivity}
-
-\paragraph{IMU heading noise.}
-Yaw errors of $\pm5^\circ$, $\pm10^\circ$, and $\pm15^\circ$ are simulated
-by perturbing the compass heading before the Step-1b alignment (the
-perturbation sign alternates deterministically across the query sequence so
-the per-site mean perturbation is zero).
-These experiments determine whether descriptor rotation-invariance is
-sufficient to absorb mild misalignment, and whether the $\pm5^\circ$ heading
-assumption is a hard performance boundary.
-Sensitivity sweeps are run on a fixed 100-image-per-site subset.
-Results TBR.
-
-\paragraph{GSD mismatch.}
-Altitude estimate errors of $\pm10\%$ and $\pm20\%$ are simulated by
-applying the corresponding incorrect scale factor in Step 1a, on the same
-100-image-per-site subset; results TBR.
-
-\paragraph{Kernel expansion depth $D_{\max}$.}
-We vary $D_{\max} \in \{1, 2, 4, 8\}$ and report mean error per setting (TBR).
-This ablation measures how much contextual building geometry is needed: small
-$D_{\max}$ limits $P_{\mathrm{sub}}$ to near the original triangle (less
-context); large $D_{\max}$ allows broader expansion (more context but
-diminishing marginal benefit as $P_{\mathrm{sub}}$ converges).
-
-\paragraph{Segmentation density.}
-We correlate the per-query descriptor count $M$ (the number of triangles the
-segmentation stage yields) with localization error, isolating
-segmentation-sparsity failure from descriptor failure; per-site and
-per-altitude-band average $M$ values are reported alongside the error
-metrics. Results TBR.
-
-\subsection{Vote-Distribution Analysis}
-
-To validate the plurality-vote estimator, we report the following per-site
-diagnostics (all TBR):
-(i)~\textbf{Inlier vote ratio}: fraction of the $M \times K$ total votes
-landing on the correct satellite patch;
-(ii)~\textbf{Vote margin}: gap between the winning patch vote count and the
-second-place patch, indicating the decision confidence;
-(iii)~\textbf{Minimum winning vote count} on sparse-building sites (Shandan,
-Taizhou), which determines whether the estimate is distinguishable from noise.
-
-\subsection{Scalability}
-
-Table~\ref{tab:scalability} reports memory footprint and query latency as a
-function of the number of simultaneously indexed map sites, empirically
-validating the $O(M\log N)$ complexity at multiple $N$ values.
-
-\begin{table}[htbp]
-\caption{Scalability: memory and query latency vs.\ number of sites. TBR.}
-\label{tab:scalability}
-\centering\small
-\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lccc}
 \toprule
-\textbf{\# Sites} & \textbf{$N$ (triangles)} & \textbf{Memory (MB)} & \textbf{Query (s)} \\
+\textbf{Descriptor / matching variant} & \textbf{True-match} & \textbf{Retrieval} & \textbf{Median} \\
+                                        & $\ell_1\!\downarrow$ & \textbf{@top-$K$}$\uparrow$ & \textbf{err (m)$\downarrow$} \\
 \midrule
-1   & ${\approx}0.6\text{M}$ & TBR & TBR \\
-3   & ${\approx}1.8\text{M}$ & TBR & TBR \\
-11  & ${\approx}6.6\text{M}$ & TBR & TBR \\
+\multicolumn{4}{l}{\textit{Coverage: $92.9\%$ of true locations have a nearby mapped building}} \\
+\midrule
+5-D angles (baseline)              & 38.0 & 0.0\% & 3492 \\
+\quad + boundary canonicalization  & 18.1 & 0.0\% & 3084 \\
+\quad + per-dim standardization    & 2.4  & 0.0\% & 3543 \\
+\quad + building size (log $A$, $P$) & 4.3 & 0.0\% & 3096 \\
+\quad + constellation context      & ---  & 0.0\% & 2102 \\
+\midrule
+Building-level shape               & ---  & 0.6\% & 3330 \\
+\quad + constellation context      & ---  & 0.3\% & 2562 \\
+\midrule
+\rowcolor{ours}
+5-D + context, search $\le0.2$\,km$^2$ (coarse prior) & --- & 1.5\% & 148 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Qualitative Results}
+\subsection{Sequential integration does not recover it}
+\label{sec:seq}
 
-Figures~\ref{fig:uav_results_01}--\ref{fig:uav_results_05} present
-localization results on five representative UAV-VisLoc sites.
-Each figure shows (a) the satellite reference map, (b) the preprocessed UAV
-query image, and (c) the predicted position (red star) on the satellite map.
+Since every accurate map-matching method integrates ambiguous per-frame
+observations over a trajectory (CFBVM's Gaussian-mixture matches in a particle
+filter~\cite{ouyang2024cfbvm}; SWA-PF's 4-DoF particle
+filter~\cite{yuan2025swapf}), we test whether the same estimator rescues our
+descriptor. On a $100$-frame consecutive flight segment we run a particle filter
+($2\times10^{4}$ particles, random-walk motion of $\approx\!266$\,px/frame
+matching the measured inter-frame displacement) whose per-frame observation is
+the Gaussian-mixture of our descriptor's Hough votes.
+It does not converge: the trajectory-level error stays at kilometre scale and
+sub-$100$\,m recall is $0\%$.
+The diagnostic explains why: the true position receives \emph{any} vote in only
+$12\%$ of frames (median $0$ votes/frame), and when present its region ranks
+$\approx\!123$rd. A particle filter integrates a signal that \emph{recurs};
+ours is absent from $88\%$ of frames, so the filter instead locks onto a
+spuriously consistent wrong track. The limiting factor is thus the
+\emph{observation model}: unlike CFBVM's area-density descriptor, our
+per-element geometric descriptor does not provide recurring, spatially
+consistent support for the true location, which no downstream filter can
+manufacture.
+
+\paragraph{Runtime and scale.}
+The pipeline is nonetheless efficient and compact, as intended:
+descriptor extraction and a single $K$-NN query take ${\approx}0.8$\,s per image
+on one CPU core, and the site-01 index of $4.8\times10^{5}$ elements occupies
+${\approx}12$\,MB ($5\times$float32 per element). These costs scale linearly in
+the number of indexed elements; the barrier to city-scale use is accuracy, as
+analyzed above, not compute or memory.
+
+\subsection{Qualitative Pipeline Examples}
+
+Figures~\ref{fig:uav_results_01}--\ref{fig:uav_results_05} illustrate the
+end-to-end pipeline on five representative UAV-VisLoc sites: (a) the satellite
+reference map, (b) the preprocessed, yaw-aligned UAV query image, and (c) the
+single-frame top-ranked candidate ($\star$) the descriptor matching returns.
+These are illustrative of the pipeline's inputs and output, not of correct
+localization: as quantified in Section~\ref{sec:analysis}, the single-frame
+top candidate is typically far from the true position at full-map scale.
 
 \begin{figure}[htbp]
     \centering
@@ -1630,7 +1535,7 @@ query image, and (c) the predicted position (red star) on the satellite map.
     \end{subfigure}\hfill
     \begin{subfigure}{0.48\linewidth}
         \includegraphics[width=\linewidth]{figs/01_matching.jpg}
-        \caption{Predicted position (red $\star$).}
+        \caption{Top-ranked candidate (red $\star$).}
     \end{subfigure}
     \caption{Changjiang (riverside urban terrain).}
     \label{fig:uav_results_01}
@@ -1648,7 +1553,7 @@ query image, and (c) the predicted position (red star) on the satellite map.
     \end{subfigure}\hfill
     \begin{subfigure}{0.48\linewidth}
         \includegraphics[width=\linewidth]{figs/02_matching.jpg}
-        \caption{Predicted position (red $\star$).}
+        \caption{Top-ranked candidate (red $\star$).}
     \end{subfigure}
     \caption{Taizhou (coastal agricultural terrain).}
     \label{fig:uav_results_02}
@@ -1666,7 +1571,7 @@ query image, and (c) the predicted position (red star) on the satellite map.
     \end{subfigure}\hfill
     \begin{subfigure}{0.48\linewidth}
         \includegraphics[width=\linewidth]{figs/03_matching.jpg}
-        \caption{Predicted position (red $\star$).}
+        \caption{Top-ranked candidate (red $\star$).}
     \end{subfigure}
     \caption{Zhuxi (hilly mixed-vegetation terrain).}
     \label{fig:uav_results_03}
@@ -1684,7 +1589,7 @@ query image, and (c) the predicted position (red star) on the satellite map.
     \end{subfigure}\hfill
     \begin{subfigure}{0.48\linewidth}
         \includegraphics[width=\linewidth]{figs/04_matching.jpg}
-        \caption{Predicted position (red $\star$).}
+        \caption{Top-ranked candidate (red $\star$).}
     \end{subfigure}
     \caption{Huzhou (lakeside urban terrain).}
     \label{fig:uav_results_04}
@@ -1702,7 +1607,7 @@ query image, and (c) the predicted position (red star) on the satellite map.
     \end{subfigure}\hfill
     \begin{subfigure}{0.48\linewidth}
         \includegraphics[width=\linewidth]{figs/05_matching.jpg}
-        \caption{Predicted position (red $\star$).}
+        \caption{Top-ranked candidate (red $\star$).}
     \end{subfigure}
     \caption{Huailai (semi-arid hill terrain).}
     \label{fig:uav_results_05}
@@ -1734,20 +1639,23 @@ building cluster.
     \label{fig:top5}
 \end{figure}
 
-\subsection{Anticipated Failure Modes}
+\subsection{Discussion of the failure}
 
-Based on dataset properties and the method's assumptions, three failure modes
-are anticipated and will be analyzed quantitatively in the full evaluation:
-(i)~\emph{Sparse-building terrain} (Shandan desert, Taizhou farmland) where
-fewer than ${\approx}5$ triangles are extractable per UAV image, providing
-insufficient votes for reliable patch identification.
-(ii)~\emph{Severe segmentation fragmentation} (Yunnan mountainous sites with
-irregular rooflines) where Mask R-CNN over-segments buildings into many tiny
-polygons with near-degenerate triangles, degrading descriptor discriminability.
-(iii)~\emph{Repeated urban patterns} (dense grid blocks) where many triangles
-share similar 5-D descriptors, increasing the false-match vote rate.
-All three failure modes are expected to be partially recoverable by integrating
-the matching step into a particle filter over sequential frames.
+The analysis above identifies a single dominant failure mode and rules out
+several plausible alternatives. It is \emph{not} primarily a coverage problem
+(the true location is mapped in $93\%$ of cases), nor a segmentation-density
+problem specific to sparse terrain (the ceiling appears on dense-urban
+Changjiang), nor a voting or refinement problem (the correct match is absent
+from the top-$20$ before any voting), nor an estimator problem (a particle
+filter cannot converge on it). It is a \emph{discriminability} problem intrinsic
+to per-element geometric matching: individual building triangles---even enriched
+with size and neighbourhood context---are not unique among $10^{5}$--$10^{6}$
+candidates, and the discriminative information that identifies a location lives
+in the joint spatial configuration of many buildings, which per-element
+retrieval discards. The one regime in which the descriptor localizes is when an
+external coarse prior shrinks the candidate set (Section~\ref{sec:analysis}),
+which is precisely how successful vector-map methods such as
+CFBVM~\cite{ouyang2024cfbvm} deploy their matching stage.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Conclusion}
@@ -1776,28 +1684,43 @@ An offline KD-tree index reduces online matching to $O(M\log N)$; plurality
 voting over satellite patches converts the matching output to a predicted 2-D
 geographic position.
 
-Quantitative evaluation (RMSE, Mean, Median, Recall@\{10,20,50\}m) across
-all 11 UAV-VisLoc sites, an ablation study covering descriptor components,
-kernel-expansion depth $D_{\max}$, retrieval metric, and $K$ /
-voting-strategy choices, season and altitude stratifications, inlier vote
-diagnostics, and sensitivity analysis under IMU heading and GSD perturbations
-are to be reported upon completion of full experiments; the released
-\texttt{eval.py} reproduces all of them from a single command.
+Our second contribution is an honest, quantitative characterization of this
+descriptor as a UAV-localization matching stage. On UAV-VisLoc we find that,
+although building coverage is high ($93\%$), single-frame per-element retrieval
+never places the correct match in the top-$20$ and localization error stays at
+the kilometre scale; that enriching the descriptor with size, a building-
+constellation shape context, building-level granularity, and dimension
+normalization shrinks the true-match distance up to $16\times$ without moving
+retrieval off zero; and that integrating the per-frame matches over a trajectory
+with a particle filter---the mechanism that makes CFBVM and SWA-PF
+succeed---also fails to converge, because the true position receives recurring
+observation support in only $12\%$ of frames.
+The limiting factor is therefore the \emph{observation model}: purely geometric
+per-element matching does not, on its own, provide the recurring, spatially
+consistent support that scale-robust localization requires.
+This is a useful negative result. It shows that the promising direction is not
+a richer per-element descriptor but a fundamentally more discriminative
+\emph{observation}---an area-level or configuration-level descriptor (as in
+CFBVM's density rings) or a learned embedding---paired with the coarse-to-fine,
+sequential estimation that the accurate methods already employ. Our released
+code and analysis pipeline (\texttt{eval.py} and the diagnostic scripts) let
+future work measure any candidate observation model against the same
+retrieval, coverage, and sequential-support criteria.
 
-\paragraph{Limitations.}
-(i) The method assumes building presence; it does not apply to open terrain
-(desert, farmland) without supplementary road or river polygon descriptors.
-(ii) The current output is a patch centroid with position resolution limited
-by the patch stride (100\,px $\times$ 0.3\,m/px = 30\,m); sub-patch
-localization requires a second-stage triangle-to-triangle centroid alignment.
-(iii) The Ekeland angle encodes geometric context only within a single
-segmented footprint (the kernel expansion never crosses the polygon boundary);
-inter-building spatial context across footprints is not captured and is a
-natural extension of the obstacle set.
-(iv) SWA-PF~\cite{yuan2025swapf} is, as of this writing, an arXiv preprint
-with no peer-reviewed venue found despite an exhaustive search; its numbers
-are reproduced as reported and should be re-checked against a peer-reviewed
-version if one appears before publication.
+\paragraph{Limitations and scope.}
+(i) Our detailed analysis is on the Changjiang-20 (dense urban) and Shandan
+(desert) sites rather than all eleven; the discriminability ceiling was
+consistent across these contrasting regimes, but per-site error distributions
+for the full benchmark are left to future work.
+(ii) The negative result is specific to \emph{training-free per-element}
+matching; it does not preclude success with learned or area-level observations,
+which we did not implement.
+(iii) The method assumes approximately nadir views, buildings in the field of
+view, and heading to $\pm5^\circ$; open terrain without buildings is out of
+scope.
+(iv) SWA-PF~\cite{yuan2025swapf} is, as of this writing, an arXiv preprint with
+no peer-reviewed venue found; its numbers are reproduced as reported and should
+be re-checked against a peer-reviewed version if one appears.
 
 \FloatBarrier
 \bibliographystyle{plain}
