@@ -1107,22 +1107,18 @@ sub-vector, since cone angles and interior angles occupy different angular
 regimes.
 Figure~\ref{fig:feature_extraction} illustrates the Ekeland angle geometry
 and the complete extraction pipeline.
-% Chỉ xác định 3 góc ekeland của tam giác xanh
-% Tìm đa giác lồi lớn nhất sao cho 3 đỉnh của tam giác nằm trên cạnh của đa giác
 \begin{figure}[htbp]
   \centering
-  % Thay đổi đường dẫn file dưới đây tương ứng với 3 ảnh của bạn
-  \includegraphics[width=0.32\linewidth]{figs/expansion_seed_2.png} \hfill
-  \includegraphics[width=0.32\linewidth]{figs/expansion_seed_10.png} \hfill
-  \includegraphics[width=0.32\linewidth]{figs/expansion_seed_13.png}
+  \includegraphics[width=0.66\linewidth]{figs/fig_descriptor}
   \caption{Ekeland free-cone angle geometry at a building vertex.
-    The maximal free cone (shaded sector) is the largest angular sector
-    centred at an original triangle vertex $v$ whose open interior does not
-    intersect the obstacle set $\mathcal{O}_v = \partial P_{\mathrm{sub}}$
-    (Eq.~\eqref{eq:obstacle}), the boundary of the kernel expansion polygon.
-    Its angular width $e_v$ is the Ekeland angle.
-    Three such scalars, one per triangle vertex, form the free-space
-    sub-vector $(e_1, e_2, e_3)$ of the 5-D descriptor
+    An L-shaped footprint (blue) is triangulated by CDT (grey); a seed triangle
+    (orange) is expanded into the kernel polygon $P_{\mathrm{sub}}$.
+    At the reflex vertex, the maximal free cone (green sector) is the largest
+    angular sector whose open interior does not intersect
+    $\partial P_{\mathrm{sub}}$ (Eq.~\eqref{eq:obstacle}); its width is the
+    Ekeland angle, here $e_v = 90^\circ$ (interior $270^\circ$).
+    Three such scalars, one per triangle vertex, form the free-space sub-vector
+    $(e_1, e_2, e_3)$ of the 5-D descriptor
     $f = (\alpha_1, \alpha_2, e_1, e_2, e_3)$.}
   \label{fig:feature_extraction}
 \end{figure}
@@ -1634,130 +1630,25 @@ ${\approx}12$\,MB ($5\times$float32 per element). These costs scale linearly in
 the number of indexed elements; the barrier to city-scale use is accuracy, as
 analyzed above, not compute or memory.
 
-\subsection{Qualitative Pipeline Examples}
+\subsection{Qualitative Visualization}
 
-Figures~\ref{fig:uav_results_01}--\ref{fig:uav_results_05} illustrate the
-end-to-end pipeline on five representative UAV-VisLoc sites: (a) the satellite
-reference map, (b) the preprocessed, yaw-aligned UAV query image, and (c) the
-single-frame top-ranked candidate ($\star$) the descriptor matching returns.
-These are illustrative of the pipeline's inputs and output, not of correct
-localization: as quantified in Section~\ref{sec:analysis}, the single-frame
-top candidate is typically far from the true position at full-map scale.
-
-\begin{figure}[htbp]
-    \centering
-    \begin{subfigure}{\linewidth}
-        \includegraphics[width=\linewidth]{figs/01_satellite.jpg}
-        \caption{Satellite map (Changjiang, 405\,m, $\phi=165^\circ$).}
-    \end{subfigure}\vspace{1mm}
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/01_uav.jpg}
-        \caption{UAV query image.}
-    \end{subfigure}\hfill
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/01_matching.jpg}
-        \caption{Top-ranked candidate (red $\star$).}
-    \end{subfigure}
-    \caption{Changjiang (riverside urban terrain).}
-    \label{fig:uav_results_01}
-\end{figure}
+Figure~\ref{fig:seg_vis} shows Phase~1's front end on a representative
+building-dense UAV frame: Mask R-CNN building segmentation (orange outlines) and
+the interior-filtered CDT mesh (blue) from which the per-triangle descriptors
+are computed. Segmentation and triangulation are visibly reliable; the failure
+analyzed in Section~\ref{sec:analysis} arises downstream in matching, not here.
+The matching-stage counterpart is Figure~\ref{fig:votecloud}
+(Section~\ref{sec:seq}): the descriptor votes for a query frame scatter across
+the entire map rather than concentrating at the true position.
 
 \begin{figure}[htbp]
     \centering
-    \begin{subfigure}{\linewidth}
-        \includegraphics[width=\linewidth]{figs/02_satellite.jpg}
-        \caption{Satellite map (Taizhou, 466\,m, $\phi=-40^\circ$).}
-    \end{subfigure}\vspace{1mm}
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/02_uav.jpg}
-        \caption{UAV query image.}
-    \end{subfigure}\hfill
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/02_matching.jpg}
-        \caption{Top-ranked candidate (red $\star$).}
-    \end{subfigure}
-    \caption{Taizhou (coastal agricultural terrain).}
-    \label{fig:uav_results_02}
-\end{figure}
-
-\begin{figure}[htbp]
-    \centering
-    \begin{subfigure}{\linewidth}
-        \includegraphics[width=\linewidth]{figs/03_satellite.jpg}
-        \caption{Satellite map (Zhuxi, 840\,m, $\phi=-15^\circ$).}
-    \end{subfigure}\vspace{1mm}
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/03_uav.jpg}
-        \caption{UAV query image.}
-    \end{subfigure}\hfill
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/03_matching.jpg}
-        \caption{Top-ranked candidate (red $\star$).}
-    \end{subfigure}
-    \caption{Zhuxi (hilly mixed-vegetation terrain).}
-    \label{fig:uav_results_03}
-\end{figure}
-
-\begin{figure}[htbp]
-    \centering
-    \begin{subfigure}{\linewidth}
-        \includegraphics[width=\linewidth]{figs/04_satellite.jpg}
-        \caption{Satellite map (Huzhou, 551\,m, $\phi=100^\circ$).}
-    \end{subfigure}\vspace{1mm}
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/04_uav.jpg}
-        \caption{UAV query image.}
-    \end{subfigure}\hfill
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/04_matching.jpg}
-        \caption{Top-ranked candidate (red $\star$).}
-    \end{subfigure}
-    \caption{Huzhou (lakeside urban terrain).}
-    \label{fig:uav_results_04}
-\end{figure}
-
-\begin{figure}[htbp]
-    \centering
-    \begin{subfigure}{\linewidth}
-        \includegraphics[width=\linewidth]{figs/05_satellite.jpg}
-        \caption{Satellite map (Huailai, 772\,m, $\phi=170^\circ$).}
-    \end{subfigure}\vspace{1mm}
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/05_uav.jpg}
-        \caption{UAV query image.}
-    \end{subfigure}\hfill
-    \begin{subfigure}{0.48\linewidth}
-        \includegraphics[width=\linewidth]{figs/05_matching.jpg}
-        \caption{Top-ranked candidate (red $\star$).}
-    \end{subfigure}
-    \caption{Huailai (semi-arid hill terrain).}
-    \label{fig:uav_results_05}
-\end{figure}
-
-\subsection{Feature Extraction Visualisation}
-
-Figure~\ref{fig:seg_vis} shows the CDT mesh overlaid on a representative
-UAV-VisLoc query frame (Zhuxi, site 03, 840\,m altitude).
-Figure~\ref{fig:top5} shows the top-5 KD-tree matches for the same frame,
-ranked by total $\ell_1$ distance; the rank-1 result aligns with the ground-truth
-building cluster.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{figs/6_panels_03_0049.jpg}
-    \caption{CDT mesh overlay on a Zhuxi query frame.
-    Warmer colours indicate larger MFCA values (more open vertex);
-    cooler colours indicate smaller MFCAs (more enclosed vertex).}
+    \includegraphics[width=0.78\linewidth]{figs/fig_cdt}
+    \caption{Phase-1 front end on a Changjiang-20 query frame: Mask R-CNN
+    building footprints (orange) and the interior-filtered CDT mesh (blue) that
+    yields the 5-D per-triangle descriptors. Segmentation and triangulation are
+    reliable; matching is the bottleneck (Section~\ref{sec:analysis}).}
     \label{fig:seg_vis}
-\end{figure}
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{figs/result_0333.png}
-    \caption{Top-5 matching results for the Zhuxi query frame.
-    Columns show satellite patches ranked by total $\ell_1$ descriptor distance;
-    the rank-1 patch (leftmost) contains the ground-truth building cluster.}
-    \label{fig:top5}
 \end{figure}
 
 \subsection{Discussion of the failure}
