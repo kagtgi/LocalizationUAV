@@ -1893,14 +1893,32 @@ code and analysis pipeline (\texttt{eval.py} and the diagnostic scripts) let
 future work measure any candidate observation model against the same
 retrieval, coverage, and sequential-support criteria.
 
+Our third contribution acts on this diagnosis and, crucially, keeps the Ekeland
+angle central (Section~\ref{sec:area}). Aggregating the descriptor over
+${\approx}200$\,m cells---as a histogram of per-building Ekeland free-cone
+angles alongside building density and layout---escapes the per-element
+discriminability ceiling: coarse-localization recall rises from a flat $0\%$ to
+several times chance. More importantly, across all four analysed sites the
+Ekeland-angle histograms improve coarse recall over a density/layout-only
+(CFBVM-style) descriptor---for example, top-$50$ recall $2.0\%\!\to\!10.2\%$ on
+the coastal site---and reduce median error on three of four. This isolates the
+Ekeland free-cone angle as a discriminative shape cue at the area level that
+arrangement- or density-only descriptors discard. The gains are coarse in
+absolute terms, but unanimous in direction across distinct terrains, and they
+point to the concrete next step: a learned area embedding, or matching against
+clean vector maps~\cite{ssrm2024}, built on the Ekeland area descriptor
+introduced here.
+
 \paragraph{Limitations and scope.}
-(i) Our detailed analysis is on the Changjiang-20 (dense urban) and Shandan
-(desert) sites rather than all eleven; the discriminability ceiling was
-consistent across these contrasting regimes, but per-site error distributions
-for the full benchmark are left to future work.
-(ii) The negative result is specific to \emph{training-free per-element}
-matching; it does not preclude success with learned or area-level observations,
-which we did not implement.
+(i) Our multi-site evaluation covers five of the eleven UAV-VisLoc sites,
+selected for terrain diversity (urban, coastal, hilly, built-up, arid); the
+discriminability ceiling was consistent across all five and the area-level
+Ekeland gain was unanimous in direction, but the remaining six sites and the
+full per-site error distributions are left to future work.
+(ii) Our area-level result is a coarse-localization study (top-$K$ cell recall
+among ${\sim}10^{3}$ cells); we do not yet demonstrate precise metric
+localization, which we expect requires either a learned area embedding or a
+clean vector map, and did not implement.
 (iii) The method assumes approximately nadir views, buildings in the field of
 view, and heading to $\pm5^\circ$; open terrain without buildings is out of
 scope.
