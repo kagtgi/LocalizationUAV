@@ -2,6 +2,7 @@
 
 % ── Packages ─────────────────────────────────────────────────────────────────
 \usepackage[margin=1.2in,top=1in,bottom=1.1in]{geometry}
+\usepackage{microtype} % resolves minor over/underfull hboxes via margin kerning
 \usepackage{amsmath,amssymb,amsthm}
 \theoremstyle{plain}
 \newtheorem{theorem}{Theorem}[section]
@@ -793,10 +794,10 @@ descriptor's free-space component, not a claim of mathematical equivalence.
 Two facts follow immediately from Definition~\ref{def:ekeland_angle} and are
 stated here without dedicated theorem environments, since both are direct
 consequences of the closed form
-$e_X = \min(360^\circ - \alpha_{\mathrm{int}}(X), 180^\circ)$ rather than
+$e_X = \min(360^\circ - \gamma_{\mathrm{int}}(X), 180^\circ)$ rather than
 results requiring proof: (i)~\emph{monotonicity}---merging more triangles
 into $P_{\mathrm{sub}}$ can only increase or maintain the interior angle
-$\alpha_{\mathrm{int}}(X)$, so $e_X$ is non-increasing under kernel
+$\gamma_{\mathrm{int}}(X)$, so $e_X$ is non-increasing under kernel
 expansion, meaning vertices in complex building recesses (large
 $P_{\mathrm{sub}}$, reflex angles) receive a strictly smaller $e_X$ than
 isolated convex corners ($e_X = 180^\circ$); and (ii)~\emph{coordinatewise
@@ -847,17 +848,17 @@ Let $X \in \{v_A,v_B,v_C\}$ be an original triangle vertex on $\partial P_{\math
 and let $\mathbf{a}$ (from $X$ toward $X_{\mathrm{prev}}$) and
 $\mathbf{b}$ (from $X$ toward $X_{\mathrm{next}}$) be the two $\partial P_{\mathrm{sub}}$
 boundary edges incident to $X$.
-Let $\alpha_{\mathrm{int}}(X)$ denote the interior angle of $P_{\mathrm{sub}}$
+Let $\gamma_{\mathrm{int}}(X)$ denote the interior angle of $P_{\mathrm{sub}}$
 at $X$, measured inside the polygon, and let
-$\alpha(X) = 360^\circ - \alpha_{\mathrm{int}}(X)$ denote the corresponding
+$\gamma(X) = 360^\circ - \gamma_{\mathrm{int}}(X)$ denote the corresponding
 exterior (free-space) angle at $X$
-($\alpha(X) = \angle\mathbf{a}X\mathbf{b}$ measured through the exterior of
+($\gamma(X) = \angle\mathbf{a}X\mathbf{b}$ measured through the exterior of
 $P_{\mathrm{sub}}$).
 
 \begin{definition}[Ekeland Angle at vertex $X$]
 \label{def:ekeland_angle}
 \begin{equation}
-  e_X \;=\; \min\bigl(\alpha(X),\,180^\circ\bigr).
+  e_X \;=\; \min\bigl(\gamma(X),\,180^\circ\bigr).
   \label{eq:ekeland_angle}
 \end{equation}
 \end{definition}
@@ -870,9 +871,9 @@ any ray $X\mathbf{d}$ parallel to the $O_x$ or $O_y$ axis inside the exterior
 wedge $\angle\mathbf{a}X\mathbf{b}$, and reflect the boundary edge directions
 $\hat{\mathbf{a}}$ and $\hat{\mathbf{b}}$ across it; the reflected ray that
 stays outside $P_{\mathrm{sub}}$ is tangent to the opposite boundary edge, at
-angle $\alpha(X)$ to $X\mathbf{d}$---the geometric picture behind Ekeland's
+angle $\gamma(X)$ to $X\mathbf{d}$---the geometric picture behind Ekeland's
 ``cone touches but does not cross'' condition.
-Because $\alpha(X)$ is a fixed property of $P_{\mathrm{sub}}$ at $X$ and does
+Because $\gamma(X)$ is a fixed property of $P_{\mathrm{sub}}$ at $X$ and does
 not depend on \emph{which} of the four axis-parallel rays is drawn, $e_X$
 itself never depends on an axis choice: there is no discrete decision
 boundary at which $e_X$ can jump as the coordinate frame rotates.
@@ -927,9 +928,9 @@ effect to measure.
 \smallskip
 \State \textbf{--- Phase 2: Ekeland Angle (Definition~\ref{def:ekeland_angle}) ---}
 \For{each $X \in \{v_A,v_B,v_C\}$}
-  \State Compute $\alpha_{\mathrm{int}}(X) \leftarrow$ interior angle of $P_{\mathrm{sub}}$ at $X$
-  \State $\alpha(X) \leftarrow 360^\circ - \alpha_{\mathrm{int}}(X)$
-  \State $e_X \leftarrow \min\bigl(\alpha(X),\,180^\circ\bigr)$
+  \State Compute $\gamma_{\mathrm{int}}(X) \leftarrow$ interior angle of $P_{\mathrm{sub}}$ at $X$
+  \State $\gamma(X) \leftarrow 360^\circ - \gamma_{\mathrm{int}}(X)$
+  \State $e_X \leftarrow \min\bigl(\gamma(X),\,180^\circ\bigr)$
 \EndFor
 \Return $(e_{v_A},\,e_{v_B},\,e_{v_C})$
 \end{algorithmic}
@@ -1073,14 +1074,18 @@ descriptor has non-zero false-match probability at the scale of
 $N \approx 600\text{k}$ satellite triangles.
 Plurality voting aggregates $M \times K$ match-votes from all triangles in the
 query image.
-The key statistical property is that false matches scatter \emph{uniformly}
-across satellite patches (a spurious descriptor match is equally likely to land
-anywhere in the map), while true matches \emph{concentrate} on the single
-correct patch---converting per-triangle uncertainty into a patch-level signal
-that grows more reliable as $M$ increases.
-This is analogous to the noise-cancelling effect of multiplexed sensing: the
-signal-to-noise ratio of the vote tally scales as $\sqrt{M}$ under a uniform
-false-match model.
+The key statistical property \emph{would be} that false matches scatter
+\emph{uniformly} across satellite patches (a spurious descriptor match
+equally likely to land anywhere in the map), while true matches
+\emph{concentrate} on the single correct patch---converting per-triangle
+uncertainty into a patch-level signal that grows more reliable as $M$
+increases, with the vote tally's signal-to-noise ratio scaling as $\sqrt{M}$
+under a uniform false-match model. We state this design assumption here and
+flag immediately that Sections~\ref{sec:impostor}--\ref{sec:analysis}
+measure it directly and find it does \emph{not} hold at descriptor-collision
+scale: impostors cluster around the true match's descriptor value rather
+than scattering uniformly, so the $\sqrt{M}$ argument does not rescue
+retrieval in practice, however clean the design intent.
 Let $\ell_j$ be the patch identifier of satellite triangle $j$.
 Each pair $(i,j)$ with $j \in \mathcal{C}_i$ casts one vote for patch
 $\ell_j$, and the plurality winner is selected as in Eq.~\eqref{eq:vote}.
@@ -1252,7 +1257,7 @@ SWA-PF, LSVL), learning-based (FPI, Kinnari, Hier.\ Match.), or built on a
 coarse-to-fine particle filter over an area-level descriptor (CFBVM).
 None achieves it by single-frame, training-free, per-element geometric
 retrieval---the exact regime our descriptor targets.
-Our contribution is (a)~a novel instance-segmentation\,$\to$\,CDT\,$\to$\,Ekeland
+Our contribution is (a)~a novel instance-segmentation $\to$ CDT $\to$ Ekeland
 free-cone descriptor with no scene-specific training, and (b)~a rigorous account,
 below, of why this regime does not by itself reach the accuracy of the methods
 above, and precisely what it lacks.
@@ -1376,12 +1381,13 @@ but a property of the paradigm.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth]{figs/fig_multisite}
-  \caption{Cross-site single-frame localization on five terrains. Median
-    position error (red bars, log scale) stays at kilometre scale on every
-    terrain, and meter-level accuracy within $500$\,m (orange, right axis) never
-    exceeds $3.1\%$---the matching failure is terrain-general. Building coverage
-    is high ($93$--$99\%$ on the diagnostically analysed sites), so this is a
-    matching failure, not a coverage one (Section~\ref{sec:coverage}).}
+  \caption{Cross-site single-frame localization on five terrains, as two
+    single-axis panels (never a shared dual axis). (a)~Median position error
+    stays at kilometre scale on every terrain. (b)~Meter-level accuracy within
+    $500$\,m never exceeds $3.1\%$ on the same five sites---the matching
+    failure is terrain-general. Building coverage is high ($93$--$99\%$ on the
+    diagnostically analysed sites), so this is a matching failure, not a
+    coverage one (Section~\ref{sec:coverage}).}
   \label{fig:multisite}
 \end{figure}
 
@@ -1513,8 +1519,9 @@ $2.0$--$2.3$, confirming quantitatively that most of its variance lives in
 $2$--$3$ of the $5$ nominal dimensions (consistent with $e_2,e_3$ staying
 near the constant convex value $180^\circ$ for the majority of vertices).
 Second, and decisively, at the true-match distance between
-$19\%$ and $24\%$ of the \emph{entire} candidate population sits closer than
-the true match itself, giving an expected true-match rank in the tens to
+$15\%$ and $34\%$ of the \emph{entire} candidate population sits closer than
+the true match itself (site-dependent: $14.9\%$ on the hilly site to $33.5\%$
+on the coastal site), giving an expected true-match rank in the tens to
 hundreds of thousands---orders of magnitude beyond any practical $K$. This
 is the real, measured account of why retrieval collapses to $0\%$
 (Table~\ref{tab:analysis}): not because the true match is far in descriptor
@@ -1522,12 +1529,15 @@ space, but because so many impostors are equally close.
 
 The per-dimension standardization ablation (Table~\ref{tab:analysis}) makes
 this concrete. Standardizing shrinks the true-match $\ell_1$ distance by
-$16\times$ (from $38$ to about $2.2$), yet Table~\ref{tab:impostor}'s
-z-scored row shows the expected rank is essentially \emph{unchanged}
-($103$k vs.\ $113$k on site 01)---because standardization rescales impostor
-distances by the same factor. Shrinking the true-match distance without
-shrinking the surrounding impostor density does not improve retrieval; this
-is the quantitative form of the discriminability ceiling.
+$16\times$ on the urban site ($38\!\to\!2.4$); measured independently here
+across all four sites, standardization shrinks the raw true-match distance by
+$14$--$18\times$ (site-dependent), yet Table~\ref{tab:impostor}'s z-scored
+column shows the expected rank stays essentially \emph{unchanged} on every
+site ($103$k vs.\ $113$k on the urban site; comparable on the other three)---
+because standardization rescales impostor distances by the same factor.
+Shrinking the true-match distance without shrinking the surrounding impostor
+density does not improve retrieval; this is the quantitative form of the
+discriminability ceiling.
 
 \begin{table}[htbp]
 \caption{Impostor density at the true-match distance, and PCA effective
@@ -1541,7 +1551,7 @@ is the quantitative form of the discriminability ceiling.
 \begin{tabular}{lrcccc}
 \toprule
 \textbf{Site} & \textbf{$N$} & \multicolumn{2}{c}{\textbf{raw}} & \multicolumn{2}{c}{\textbf{z-scored}} \\
- & & $\hat{\rho}$ & $E[\text{rank}]$ & $d_{\mathrm{true}}$ ($16\times\!\downarrow$) & $E[\text{rank}]$ \\
+ & & $\hat{\rho}$ & $E[\text{rank}]$ & $d_{\mathrm{true}}$ ($14$--$18\times\!\downarrow$) & $E[\text{rank}]$ \\
 \midrule
 01 (urban)   & 480{,}569   & 2.05 & 113{,}489 & 2.21 & 103{,}852 \\
 02 (coastal) & 382{,}545   & 2.13 & 128{,}228 & 2.19 & 103{,}838 \\
@@ -1656,6 +1666,36 @@ account would elide.
   \label{fig:votecloud}
 \end{figure}
 
+Figure~\ref{fig:top100demo} makes the same point from a different angle, on an
+independent frame chosen before this figure was designed (the same
+best-supported frame Figure~\ref{fig:votecloud} already uses, so there is no
+post-hoc selection of a flattering example). For every one of the frame's
+$300$ query triangles we take its top-$100$ nearest-descriptor satellite
+matches and convert each into an implied UAV position, giving a pooled cloud
+of $30{,}000$ candidate positions. This is a \emph{looser, pooled} statistic
+than Table~\ref{tab:analysis}'s per-triangle retrieval@top-$K$ (which asks
+whether \emph{each} triangle's own geometrically correct match is in
+\emph{its own} top-$K$): here we only ask how many of all $30{,}000$ candidate
+votes, pooled across the whole frame, land within a generous $500$\,px
+($\approx150$\,m) of the true position. Even under this generous, pooled
+criterion the answer is $170/30{,}000$ ($0.6\%$)---the candidates scatter
+across the entire map, including geometrically impossible locations such as
+open water, rather than concentrating near the true position.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figs/fig_top100_demo}
+  \caption{Top-$100$-per-triangle candidate positions (orange, $30{,}000$
+    total) vs.\ ground truth (green star) for one query frame. (a)~Candidates
+    cover the whole map, including physically impossible locations (open
+    water). (b)~The UAV query image. (c)~Zoomed at the true position: only
+    $170/30{,}000$ ($0.6\%$) pooled candidates fall within $500$\,px---a
+    looser, pooled statistic than the strict per-triangle retrieval@top-$K$ of
+    Table~\ref{tab:analysis}, included here for visual intuition, not as a
+    replacement metric.}
+  \label{fig:top100demo}
+\end{figure}
+
 \paragraph{Runtime and scale.}
 The pipeline is nonetheless efficient and compact, as intended:
 descriptor extraction and a single $K$-NN query take ${\approx}0.8$\,s per image
@@ -1693,7 +1733,9 @@ several plausible alternatives. It is \emph{not} primarily a coverage problem
 problem specific to sparse terrain (the ceiling appears on dense-urban
 Changjiang), nor a voting or refinement problem (the correct match is absent
 from the top-$20$ before any voting), nor an estimator problem (a particle
-filter cannot converge on it). It is a \emph{discriminability} problem intrinsic
+filter cannot converge on it), nor a retrieval-scheme problem (constellation
+hashing with geometric consensus verification, Section~\ref{sec:quadhash},
+fails for the same underlying reason). It is a \emph{discriminability} problem intrinsic
 to per-element geometric matching: individual building triangles---even enriched
 with size and neighbourhood context---are not unique among $10^{5}$--$10^{6}$
 candidates, and the discriminative information that identifies a location lives
@@ -1719,12 +1761,14 @@ full similarity transform (translation, rotation, scale) via closed-form
 least squares, verified by how many of the frame's \emph{other} buildings
 project onto a nearby satellite building under that transform.
 
-This fails too, and the failure is informative. On two sites of contrasting
-density (dense urban, sparse coastal), across three verification-gate
-configurations (unconstrained scale; scale gated near the calibrated value
-$0.96$--$1.0$; scale and rotation both gated near zero, consistent with
-yaw-aligned frames), median error stays at $1.9$--$3.9$\,km---no better than
-single-element matching. A direct diagnostic isolates why: even applying the
+This fails too, and the failure is informative. We tested three
+verification-gate configurations across two sites of contrasting density
+(dense urban, sparse coastal): unconstrained scale and scale gated near the
+calibrated value $0.96$--$1.0$ (both on the urban site), and scale and
+rotation jointly gated near zero, consistent with yaw-aligned frames (on the
+coastal site, as a cross-site check). Median error stays at
+$1.9$--$3.9$\,km across all three---no better than single-element matching.
+A direct diagnostic isolates why: even applying the
 \emph{known, correct} transform (ground-truth position, calibrated scale,
 zero rotation) and counting how many satellite buildings fall near each
 projected UAV building, the count is barely distinguishable from applying a
@@ -1845,12 +1889,13 @@ descriptor introduced here.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth]{figs/fig_area_ekeland}
-  \caption{Area-level coarse-localization recall (@top-$50$) per site: a plain
-    density+layout descriptor (grey) vs.\ the same descriptor with Ekeland
-    free-cone-angle histograms added (ours, blue), dashed line = chance.
-    Table~\ref{tab:area} additionally reports the two re-implemented real
-    baselines (BRM, CFBVM-rings) and pooled significance; Ekeland is the best
-    performer on 3 of 5 sites, not universally.}
+  \caption{Area-level coarse-localization recall (@top-$50$) per site, all
+    four descriptors under identical protocol: plain density+layout (grey),
+    the two re-implemented real baselines BRM and CFBVM-rings (yellow,
+    violet), and plain augmented with Ekeland free-cone-angle histograms
+    (ours, blue); horizontal line = chance. Ekeland is the best performer on
+    $3$ of $5$ sites, not universally---Table~\ref{tab:area} reports the
+    pooled bootstrap CIs and significance tests underlying this figure.}
   \label{fig:area}
 \end{figure}
 

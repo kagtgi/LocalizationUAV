@@ -26,8 +26,6 @@ Junho Choi and Hyun Myung.
   based on matching of numerical map and {UAV} images.
 \newblock In {\em 2020 IEEE/RSJ International Conference on Intelligent Robots
   and Systems (IROS)}, pages 4537--4544. IEEE, 2020.
-\newblock Real reported accuracy is 6-12m RMSE (Table II), NOT centimeter-level
-  -- see verification report.
 
 \bibitem{conte2009vision}
 Gianpaolo Conte and Patrick Doherty.
@@ -45,13 +43,10 @@ Andy Couturier and Moulay~A. Akhloufi.
 Ming Dai, Enhui Zheng, Jiahao Chen, Lei Qi, Zhenhua Feng, and Wankou Yang.
 \newblock Finding point with image: An end-to-end benchmark for vision-based
   {UAV} localization, 2022.
-\newblock Author list from arXiv v1 (the FPI-titled version); the paper was
-  later substantially revised/retitled to "Drone Referring Localization (DRL)"
-  in v3. Real reported RDS = 57.22 (confirmed by 2 independent citing papers'
-  comparison tables) -- use this to fill the table's TBR placeholders instead
-  of mean/median/RMSE, since FPI's native metrics are MA@K (Meter-level
-  Accuracy) and RDS (Relative Distance Score), not
-  mean/median/RMSE/Recall@10,20,50. See verification report.
+\newblock Author list from arXiv v1 (the FPI-titled version); later
+  substantially revised/retitled "Drone Referring Localization (DRL)" in v3.
+  FPI's native metrics are Meter-level Accuracy and RDS (Relative Distance
+  Score), not mean/median/RMSE/Recall@K.
 
 \bibitem{de1997computational}
 Mark de~Berg, Marc van Kreveld, Mark Overmars, and Otfried Schwarzkopf.
@@ -63,7 +58,7 @@ Satyan~L. Devadoss and Joseph O'Rourke.
 \newblock {\em Discrete and Computational Geometry}.
 \newblock Princeton University Press, 2011.
 
-\bibitem{hershberger1992douglas}
+\bibitem{douglas1973peucker}
 David~H. Douglas and Thomas~K. Peucker.
 \newblock Algorithms for the reduction of the number of points required to
   represent a digitized line or its caricature.
@@ -91,8 +86,6 @@ Jiqi Fan, Enhui Zheng, Yufei He, and Jianxing Yang.
 Fang Fang, Kaishun Wu, and Daoyuan Zheng.
 \newblock A dataset of building instances of typical cities in {China} (v2).
 \newblock China Scientific Data / ScienceDB, 2021.
-\newblock Moderate confidence: author list corroborated by multiple secondary
-  sources; primary ScienceDB/sciengine.com page could not be directly fetched.
 
 \bibitem{goforth2019gps}
 Hunter Goforth and Simon Lucey.
@@ -131,6 +124,12 @@ Jouko Kinnari, Francesco Verdoja, and Ville Kyrki.
 \newblock Season-invariant {GNSS}-denied visual localization for {UAVs}.
 \newblock {\em IEEE Robotics and Automation Letters}, 7(4):10232--10239, 2022.
 
+\bibitem{lang2010astrometry}
+Dustin Lang, David~W. Hogg, Keir Mierle, Michael Blanton, and Sam Roweis.
+\newblock Astrometry.net: Blind astrometric calibration of arbitrary
+  astronomical images.
+\newblock {\em The Astronomical Journal}, 139(5):1782--1800, 2010.
+
 \bibitem{mgs2_2026}
 Minglei Li, Mengfan He, Chunyu Li, Chao Chen, Xingyu Shao, and Ziyang Meng.
 \newblock ({MGS})$^2$-net: Unifying micro-geometric scale and macro-geometric
@@ -168,9 +167,6 @@ Ahmed Nassar, Karim Amer, Reda ElHakim, and Mohamed ElHelw.
   with applications to {UAV} geolocalization.
 \newblock In {\em Proceedings of the IEEE Conference on Computer Vision and
   Pattern Recognition Workshops (CVPRW)}, pages 1626--1633, 2018.
-\newblock The "template-to-map ratio >25.9%" claim was checked against the full
-  paper text and does NOT appear anywhere in it -- likely fabricated or
-  misattributed. See verification report.
 
 \bibitem{orourke1987computational}
 Joseph O'Rourke.
@@ -183,8 +179,6 @@ Chenguang Ouyang, Suxing Hu, Fengqi Long, Shuai Shi, Zhichao Yu, Kaichun Zhao,
 \newblock A semantic vector map-based approach for aircraft positioning in
   {GNSS}/{GPS} denied large-scale environment.
 \newblock {\em Defence Technology}, 34:1--10, 2024.
-\newblock CAUTION: the 6.6m/11{,}025km2/400s-NCC numbers could not be
-  corroborated anywhere online (full text paywalled); see verification report.
 
 \bibitem{rublee2011orb}
 Ethan Rublee, Vincent Rabaud, Kurt Konolige, and Gary Bradski.
