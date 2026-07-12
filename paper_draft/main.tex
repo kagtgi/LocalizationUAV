@@ -974,7 +974,7 @@ true match's descriptor value dominates, not the coordinatewise separation
 established above. The kernel-expansion depth $D_{\max}$ controls how much
 surrounding context is incorporated ($D_{\max}=0$ removes the expansion
 entirely, reducing $e$ to the constant convex value $180^\circ$); we
-ablate $D_{\max}$ empirically in Section~\ref{sec:analysis} rather than
+ablate $D_{\max}$ empirically in Section~\ref{sec:dmax} rather than
 fixing it by an untested design argument.
 
 \paragraph{5-D descriptor assembly.}
@@ -1557,6 +1557,58 @@ discriminability ceiling.
 02 (coastal) & 382{,}545   & 2.13 & 128{,}228 & 2.19 & 103{,}838 \\
 03 (hilly)   & 1{,}043{,}560 & 2.04 & 155{,}655 & 2.24 & 166{,}602 \\
 11 (arid)    & 265{,}181   & 2.26 & 51{,}662  & 1.96 & 54{,}973 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Sensitivity to the kernel-expansion depth $D_{\max}$}
+\label{sec:dmax}
+
+$D_{\max}$ is fixed to $4$ throughout the main results; we ablate it here
+rather than leave it an untested design choice, sweeping
+$D_{\max}\in\{0,1,2,4,8\}$ on both the per-element retrieval diagnostic
+(sites 01--03) and the area-level recall (all five sites). $D_{\max}=0$ is
+the natural control: it disables kernel expansion entirely, so every $e_X$
+collapses to the constant convex value $180^\circ$ and the Ekeland
+component of the descriptor carries no information beyond a single fixed
+constant (the two interior-angle dimensions $\alpha_1,\alpha_2$ are
+unaffected by $D_{\max}$ and remain informative at every depth).
+
+Table~\ref{tab:dmax} reports both halves. Per-element retrieval stays at
+$0\%$ from $D_{\max}=0$ through $D_{\max}=4$, and is effectively still $0\%$
+at $D_{\max}=8$ ($0.03\%$ pooled across the three sites---a single triangle
+on the coastal site, not a trend). This holds even though the true-match
+$\ell_1$ distance itself \emph{grows} substantially with $D_{\max}$ on the
+urban site (median $17\to18\to22\to38\to51$ at
+$D_{\max}=0,1,2,4,8$) as more context is folded into each descriptor: a
+larger, more spread-out true-match distance has no effect on retrieval,
+reinforcing Section~\ref{sec:impostor}'s account that distance to the true
+match is not the binding constraint at any depth---impostor density is.
+Area-level recall tells a different, and more informative, story: pooled
+recall rises from $4.0\%$ at $D_{\max}=0$ (already above the plain
+baseline's depth-independent $2.9\%$, because the interior-angle histogram
+alone adds signal) through $4.4\%$ at $D_{\max}\in\{1,2\}$ to a peak of
+$5.9\%$ at $D_{\max}=4$, then falls back to $5.1\%$ at $D_{\max}=8$.
+$D_{\max}=4$ is thus not an arbitrary choice: it is close to the
+empirically-measured optimum, with both less context ($D_{\max}\le2$) and
+more ($D_{\max}=8$) giving measurably worse pooled recall.
+
+\begin{table}[htbp]
+\caption{Sensitivity to the kernel-expansion depth $D_{\max}$. Per-element
+  retrieval@top-$20$ (sites 01--03, pooled over $n{=}6{,}564$ triangles)
+  stays at $0\%$ throughout, with a negligible $0.03\%$ upturn (one site
+  only) at $D_{\max}=8$; the area-level pooled recall@top-$50$ (all five
+  sites, $n{=}272$ frames) peaks at the paper's default $D_{\max}{=}4$.
+  Plain (depth-independent control) is $2.9\%$ throughout.}
+\label{tab:dmax}
+\centering\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{$D_{\max}$} & 0 & 1 & 2 & 4 & 8 \\
+\midrule
+Retrieval@top-20 (per-element) & 0\% & 0\% & 0\% & 0\% & $\approx\!0\%$ \\
+Area recall@top-50 (pooled, ekeland) & 4.0\% & 4.4\% & 4.4\% & \textbf{5.9\%} & 5.1\% \\
 \bottomrule
 \end{tabular}
 \end{table}
