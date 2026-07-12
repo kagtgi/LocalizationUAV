@@ -97,7 +97,7 @@ def cone_wedge_angles(tri, region_triangles, vertex_idx):
     alpha_int = (ang_prev - ang_next) % 360.0
     alpha_ext = 360.0 - alpha_int
     e_v = min(alpha_ext, 180.0)
-    return ang_next, ang_next + alpha_ext, e_v, p_curr
+    return ang_next, ang_next + e_v, e_v, p_curr
 
 
 def panel_a(ax):
