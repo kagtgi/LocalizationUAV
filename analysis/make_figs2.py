@@ -177,18 +177,22 @@ def fig_descriptor():
     fig.subplots_adjust(top=0.78, bottom=0.06, left=0.02, right=0.98, wspace=0.14)
     panel_a(axes[0])
 
-    notch = [(0, 0), (3, 0), (3, 3.2), (1.5, 3.2), (1.5, 1.9),
-             (0.9, 1.9), (0.9, 3.2), (0, 3.2)]
-    r_b = panel_bc(axes[1], seed_idx=5, depth=2,
-                   title="(b) shallow: 2 merges already\nreveal a nearby recess",
-                   poly=notch, vtx=5)
-    r_c = panel_bc(axes[2], seed_idx=1, depth=4,
-                   title="(c) deep: the same recess only\nsurfaces at $D_{\\max}{=}4$",
-                   poly=notch, vtx=4)
+    # shallow, obtuse V-notch -> mild reflex angle (90 < e_v < 180)
+    shallow_v = [(0, 0), (3, 0), (3, 3.2), (2.3, 3.2), (1.5, 2.4), (0.7, 3.2), (0, 3.2)]
+    r_b = panel_bc(axes[1], seed_idx=0, depth=2,
+                   title="(b) shallow concavity:\n$90^\\circ\\!<\\!e_v\\!<\\!180^\\circ$",
+                   poly=shallow_v, vtx=4)
+
+    # sharp, acute V-notch -> strong reflex angle (e_v < 90)
+    sharp_v = [(0, 0), (3, 0), (3, 3.2), (1.65, 3.2), (1.5, 0.9), (1.35, 3.2), (0, 3.2)]
+    r_c = panel_bc(axes[2], seed_idx=0, depth=3,
+                   title="(c) deep concavity:\n$e_v\\!<\\!90^\\circ$",
+                   poly=sharp_v, vtx=4)
     print(f"[check] panel (b) P_sub triangles={r_b}  panel (c) P_sub triangles={r_c}")
 
-    fig.suptitle("Kernel expansion $P_{\\mathrm{sub}}$: same rule, different convergence depth",
-                 fontsize=11.2, y=0.975)
+    fig.suptitle("Ekeland free-cone angle $e_v$ spans the full range from\n"
+                 "convex saturation down to sharp recesses (all computed by the real code)",
+                 fontsize=10.8, y=0.99)
     savefig(fig, "fig_descriptor")
 
 

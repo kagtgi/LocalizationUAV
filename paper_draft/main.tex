@@ -1042,24 +1042,22 @@ and the complete extraction pipeline.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth]{figs/fig_descriptor}
-  \caption{Ekeland free-cone angle geometry, three cases (all computed by the
-    actual kernel-expansion code, not hand-derived).
+  \caption{Ekeland free-cone angle geometry across its full range, three cases
+    (all computed by the actual kernel-expansion code, not hand-derived).
     \textbf{(a)} A convex vertex: the free cone (green) saturates at
     $e_v = 180^\circ$ at every expansion depth $D_{\max}$, since no merge ever
     introduces a reflex angle there---this is why a plain interior angle alone
     cannot discriminate convex corners, motivating the free-space term.
-    \textbf{(b)} A vertex whose true concavity (a rectangular recess, grey CDT
-    mesh) is revealed \emph{quickly}: the seed triangle (orange) already sits
-    against the recess, so $2$ merges (violet $P_{\mathrm{sub}}$, dashed
-    boundary) suffice to reach the converged value $e_v = 90^\circ$.
-    \textbf{(c)} The \emph{same} recess, approached from a different seed
-    triangle (orange, far side of the shape): $P_{\mathrm{sub}}$ must absorb
-    every interior triangle before the angle at the shared vertex drops from
-    the naive $180^\circ$ to the same true $e_v = 90^\circ$, only at the full
-    budget $D_{\max}=4$. (b)~vs.~(c) is why $D_{\max}$ is swept empirically
-    rather than fixed by assumption (Section~\ref{sec:dmax}): the same
-    geometric feature can need anywhere from one merge to the full budget to
-    surface, depending on where CDT happens to place the seed triangle.
+    \textbf{(b)} A shallow, obtuse recess (grey CDT mesh; seed triangle
+    orange; $P_{\mathrm{sub}}$ violet after $2$ merges): the free cone is
+    compressed but still wide, $e_v = 123.9^\circ \in (90^\circ,180^\circ)$.
+    \textbf{(c)} A sharp, acute recess (same construction, $3$ merges): the
+    free cone narrows well past the halfway point,
+    $e_v = 36.8^\circ < 90^\circ$. Together the three cases span the
+    descriptor's full range from convex saturation to a sharp recess; how
+    quickly a given recess surfaces also depends on where CDT happens to
+    place the seed triangle relative to it, which is why $D_{\max}$ is swept
+    empirically rather than fixed by assumption (Section~\ref{sec:dmax}).
     Three such scalars, one per triangle vertex, form the free-space sub-vector
     $(e_1, e_2, e_3)$ of the 5-D descriptor
     $f = (\alpha_1, \alpha_2, e_1, e_2, e_3)$.}
