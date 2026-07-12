@@ -541,6 +541,7 @@ Phase~1 first, as our descriptor is its core contribution.
   unode/.style = {base, fill=dmBlueL,  draw=dmBlue},
   snode/.style = {base, fill=dmTealL,  draw=dmTeal},
   onode/.style = {base, fill=dmGreenL, draw=dmGreen},
+  pnode/.style = {base, fill=dmAmberL, draw=dmAmber, minimum width=2.55cm},
   term/.style  = {shape=ellipse, draw=dmGray, fill=dmGrayL, align=center,
                   inner sep=5pt, minimum width=1.42cm, minimum height=0.74cm,
                   line width=0.60pt, text=dmText},
@@ -549,18 +550,40 @@ Phase~1 first, as our descriptor is its core contribution.
                   text=dmGray, midway},
   bbox/.style  = {draw, dashed, rounded corners=6pt,
                   inner sep=9pt, line width=0.50pt},
+  panellbl/.style = {font=\bfseries\small, text=dmText, anchor=west},
 ]
- 
-%── Row 1: UAV branch (online) ───────────────────────────────────────────────
-\node[term]  (ui)  {UAV\\Image};
+
+%═══ (a) Design philosophy ════════════════════════════════════════════════════
+\node[pnode] (evp) at (0.9,4.65) {Ekeland's\\variational principle};
+\node[pnode, right=1.7cm of evp] (ker) {Kernel expansion\\$P_{\mathrm{sub}}$};
+\node[pnode, right=1.7cm of ker] (ang) {Free-cone angle\\$e_v$};
+\draw[arr](evp) -- (ker) node[elbl,above,font=\tiny]{analogy};
+\draw[arr](ker) -- (ang) node[elbl,above,font=\tiny]{ext.\ angle};
+
+%   tiny free-cone icon to the right of (ang)
+\begin{scope}[shift={($(ang.east)+(1.05,0)$)}]
+  \draw[dmGray, line width=0.6pt] (0,0) circle (0.40cm);
+  \draw[dmAmber, line width=1.1pt] (0,0) -- (28:0.40cm);
+  \draw[dmAmber, line width=1.1pt] (0,0) -- (152:0.40cm);
+  \fill[dmAmberL, opacity=0.9] (0,0) -- (28:0.40) arc (28:152:0.40) -- cycle;
+  \node[font=\scriptsize, text=dmGray, below=3pt] at (0,-0.40) {free cone};
+\end{scope}
+
+\begin{scope}[on background layer]
+  \node[bbox, fill=dmAmberL!35, draw=dmAmber!30] [fit=(evp)(ker)(ang)] {};
+\end{scope}
+\node[panellbl] at (-2.85,5.55) {(a) Design philosophy};
+
+%═══ (b) Phase 1: per-frame observation ══════════════════════════════════════
+\node[term]  (ui)  at (0,2.20) {UAV\\Image};
 \node[unode, right=0.45cm of ui]  (pre) {Pre-\\process};
 \node[unode, right=0.55cm of pre] (seg) {Building\\Segment};
 \node[unode, right=0.55cm of seg] (cdt) {CDT};
 \node[unode, right=0.55cm of cdt] (des) {MFCA\\Descriptor};
 \node[unode, right=0.55cm of des] (qry) {KD-Tree\\Query};
 \node[onode, right=0.55cm of qry] (vot) {Plurality\\Vote};
-\node[term,  right=0.45cm of vot] (pos) {$(x^*,y^*)$};
- 
+\node[term,  right=0.45cm of vot] (pos) {$(x^*,y^*)_t$};
+
 \draw[arr](ui)  -- (pre);
 \draw[arr](pre) -- (seg) node[elbl,above]{$I_{\mathrm{prep}}$};
 \draw[arr](seg) -- (cdt) node[elbl,above]{$\{P_k\}$};
@@ -568,55 +591,77 @@ Phase~1 first, as our descriptor is its core contribution.
 \draw[arr](des) -- (qry) node[elbl,above]{$\{f_i\}$};
 \draw[arr](qry) -- (vot) node[elbl,above]{votes};
 \draw[arr](vot) -- (pos);
- 
-%── Row 2: Satellite branch (offline) ────────────────────────────────────────
+
+%── Satellite branch (offline) ────────────────────────────────────────────────
 %   sseg, sdes, sidx column-aligned under seg, des, qry respectively
 \node[snode] (sseg) at ($(seg)+(0,-1.90)$) {Segment\\$+$\,CDT};
 \node[term,  left=0.55cm of sseg] (si) {Satellite\\Map};
 \node[snode] (sdes) at ($(des)+(0,-1.90)$) {MFCA\\Descriptor};
 \node[snode] (sidx) at ($(qry)+(0,-1.90)$) {KD-Tree\\Index};
- 
+
 \draw[arr](si)   -- (sseg) node[elbl,below]{$\mathcal{M}$};
 \draw[arr](sseg) -- (sdes) node[elbl,below]{$\{P_k^s\}$};
 \draw[arr](sdes) -- (sidx) node[elbl,below]{$\{f_j,\ell_j\}$};
- 
-%── Cross-branch: offline index feeds online query ────────────────────────────
+
 \draw[arr](sidx.north) -- (qry.south)
     node[midway, right=3.5pt, font=\scriptsize, fill=white,
          draw=dmGrayM, rounded corners=2pt, inner sep=2.5pt,
          text=dmGray, line width=0.40pt]{index};
- 
-%── Background panels ─────────────────────────────────────────────────────────
+
 \begin{scope}[on background layer]
   \node[bbox, fill=dmBlueL!45, draw=dmBlue!30]  [fit=(pre)(vot)]  {};
   \node[bbox, fill=dmTealL!45, draw=dmTeal!30]  [fit=(si)(sidx)]  {};
 \end{scope}
- 
-%── Offline / online divider ──────────────────────────────────────────────────
+
 \coordinate (dv) at ($(des.north east)!0.5!(qry.north west)$);
 \draw[dashed, dmGray!40, line width=0.50pt]
     ($(dv)+(0,+0.82)$) -- ($(dv)+(0,-2.74)$);
- 
-%── Branch labels ─────────────────────────────────────────────────────────────
+
 \node[font=\small\itshape, text=dmBlue, above=7pt]
     at ($(pre.north west)!0.5!(vot.north east)$)
     {Online\;---\;UAV branch};
 \node[font=\small\itshape, text=dmTeal, below=7pt]
     at ($(si.south west)!0.5!(sidx.south east)$)
     {Offline\;---\;Satellite branch};
- 
+
+\node[panellbl] at (-2.85,3.15) {(b) Phase 1 --- per-frame observation};
+
+%═══ (c) Phase 2: sequential integration ══════════════════════════════════════
+\node[term, minimum width=0.95cm] (f1) at ($(ui)+(0,-4.55)$) {$t{-}2$};
+\node[term, minimum width=0.95cm, right=0.65cm of f1] (f2) {$t{-}1$};
+\node[term, minimum width=0.95cm, right=0.65cm of f2] (f3) {$t$};
+\node[pnode, right=0.75cm of f3, minimum width=2.75cm] (pf) {GMM /\\Particle Filter};
+\node[term, right=0.55cm of pf] (traj) {$(\hat x_t,\hat y_t)$};
+
+\draw[arr] (f1) to[bend left=18] (pf.165);
+\draw[arr] (f2) to[bend left=10] (pf.180);
+\draw[arr] (f3) -- (pf.west);
+\draw[arr] (pf) -- (traj);
+
+\begin{scope}[on background layer]
+  \node[bbox, fill=dmAmberL!35, draw=dmAmber!30] [fit=(f1)(pf)(traj)] {};
+\end{scope}
+\node[panellbl] at (-2.85,-3.75) {(c) Phase 2 --- sequential integration};
+
 \end{tikzpicture}%
 }
 \caption{%
-  Two-branch localization pipeline.
-  The \textit{online} UAV branch (blue) processes each query image through
-  preprocessing, building segmentation, CDT, and MFCA descriptor
-  extraction, then queries the pre-built KD-tree.
-  The \textit{offline} satellite branch (teal) pre-computes descriptors
-  and builds the KD-tree index once per map site; the dashed vertical
-  line marks the offline/online boundary.
-  Plurality voting over matched satellite triangles yields the predicted
-  2-D position $(x^*,y^*)$.%
+  Method overview.
+  \textbf{(a)} Design philosophy: Ekeland's variational principle motivates a
+  \emph{kernel expansion} $P_{\mathrm{sub}}$---a maximal merge of adjacent CDT
+  triangles---whose exterior angle at each vertex, the free-cone angle $e_v$,
+  is bounded away from both $0^\circ$ and the saturated $180^\circ$ convex
+  value, making it discriminative (Figure~\ref{fig:feature_extraction}
+  illustrates this on concrete cases).
+  \textbf{(b)} Phase~1 turns a single UAV image into a per-frame observation:
+  the \textit{online} branch (blue) extracts the 5-D descriptor and queries
+  the \textit{offline} satellite index (teal) built once per map site;
+  plurality voting yields a per-frame position estimate $(x^*,y^*)_t$.
+  \textbf{(c)} Phase~2 integrates these per-frame estimates across a
+  trajectory with a Gaussian-mixture/particle filter
+  (Section~\ref{sec:phase2}), producing a refined position
+  $(\hat x_t,\hat y_t)$---though Section~\ref{sec:seq} shows this integration
+  step cannot recover accuracy the per-frame observation never had.%
 }
 \label{fig:pipeline}
 \end{figure}
@@ -932,7 +977,7 @@ effect to measure.
   \State $\gamma(X) \leftarrow 360^\circ - \gamma_{\mathrm{int}}(X)$
   \State $e_X \leftarrow \min\bigl(\gamma(X),\,180^\circ\bigr)$
 \EndFor
-\Return $(e_{v_A},\,e_{v_B},\,e_{v_C})$
+\State \textbf{return} $(e_{v_A},\,e_{v_B},\,e_{v_C})$
 \end{algorithmic}
 \end{algorithm}
 
@@ -996,14 +1041,25 @@ Figure~\ref{fig:feature_extraction} illustrates the Ekeland angle geometry
 and the complete extraction pipeline.
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.66\linewidth]{figs/fig_descriptor}
-  \caption{Ekeland free-cone angle geometry at a building vertex.
-    An L-shaped footprint (blue) is triangulated by CDT (grey); a seed triangle
-    (orange) is expanded into the kernel polygon $P_{\mathrm{sub}}$.
-    At the reflex vertex, the maximal free cone (green sector) is the largest
-    angular sector whose open interior does not intersect
-    $\partial P_{\mathrm{sub}}$ (Eq.~\eqref{eq:obstacle}); its width is the
-    Ekeland angle, here $e_v = 90^\circ$ (interior $270^\circ$).
+  \includegraphics[width=\linewidth]{figs/fig_descriptor}
+  \caption{Ekeland free-cone angle geometry, three cases (all computed by the
+    actual kernel-expansion code, not hand-derived).
+    \textbf{(a)} A convex vertex: the free cone (green) saturates at
+    $e_v = 180^\circ$ at every expansion depth $D_{\max}$, since no merge ever
+    introduces a reflex angle there---this is why a plain interior angle alone
+    cannot discriminate convex corners, motivating the free-space term.
+    \textbf{(b)} A vertex whose true concavity (a rectangular recess, grey CDT
+    mesh) is revealed \emph{quickly}: the seed triangle (orange) already sits
+    against the recess, so $2$ merges (violet $P_{\mathrm{sub}}$, dashed
+    boundary) suffice to reach the converged value $e_v = 90^\circ$.
+    \textbf{(c)} The \emph{same} recess, approached from a different seed
+    triangle (orange, far side of the shape): $P_{\mathrm{sub}}$ must absorb
+    every interior triangle before the angle at the shared vertex drops from
+    the naive $180^\circ$ to the same true $e_v = 90^\circ$, only at the full
+    budget $D_{\max}=4$. (b)~vs.~(c) is why $D_{\max}$ is swept empirically
+    rather than fixed by assumption (Section~\ref{sec:dmax}): the same
+    geometric feature can need anywhere from one merge to the full budget to
+    surface, depending on where CDT happens to place the seed triangle.
     Three such scalars, one per triangle vertex, form the free-space sub-vector
     $(e_1, e_2, e_3)$ of the 5-D descriptor
     $f = (\alpha_1, \alpha_2, e_1, e_2, e_3)$.}
