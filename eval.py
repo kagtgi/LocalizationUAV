@@ -447,7 +447,11 @@ def stage_query(args, cfg: EvalConfig) -> None:
         metadata_df = load_flight_metadata(flight.metadata_csv)
         images = flight.list_drone_images()
         if limit is not None:
-            images = images[: int(limit)]
+            if getattr(args, "sample_mode", "first") == "even" and len(images) > int(limit):
+                idx = np.linspace(0, len(images) - 1, int(limit)).astype(int)
+                images = [images[i] for i in idx]
+            else:
+                images = images[: int(limit)]
 
         rec_csv = sp.records_csv(variant)
         done = already_recorded(rec_csv)
@@ -1402,6 +1406,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--gsd-error", type=float, default=0.1, help="signed fraction, for --variant gsd_error")
     p.add_argument("--device", default=None, help="cuda / cpu (default: auto)")
     p.add_argument("--limit-images", type=int, default=None, help="cap query images per site (testing)")
+    p.add_argument("--sample-mode", choices=["first", "even"], default="first",
+                   help="how --limit-images subsamples the flight: 'first' N images "
+                        "(default, matches all existing results) or 'even' N images "
+                        "spaced across the full flight (use when the first N are "
+                        "unrepresentative, e.g. a shoreline segment)")
     p.add_argument("--limit-patches", type=int, default=None, help="cap build patches per site (testing)")
     p.add_argument("--examples", type=int, default=3, help="qualitative figures per site (main variant)")
     p.add_argument("--batch-size", type=int, default=None)

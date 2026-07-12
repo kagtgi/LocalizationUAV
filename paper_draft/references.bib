@@ -80,11 +80,7 @@
   doi       = {10.1109/ICCV.2017.322}
 }
 
-% NOTE: context is basic use of Douglas-Peucker simplification (tolerance-based),
-% not the runtime-speedup contribution -> original 1973 paper is the better fit.
-% Key name kept as given (hershberger1992douglas) per instructions, but see
-% verification report: recommend re-keying to the 1973 source or citing both.
-@article{hershberger1992douglas,
+@article{douglas1973peucker,
   author  = {Douglas, David H. and Peucker, Thomas K.},
   title   = {Algorithms for the Reduction of the Number of Points Required to Represent a Digitized Line or Its Caricature},
   journal = {The Canadian Cartographer},
@@ -182,8 +178,7 @@
   title        = {A Dataset of Building Instances of Typical Cities in {China} (V2)},
   howpublished = {China Scientific Data / ScienceDB},
   year         = {2021},
-  doi          = {10.11922/sciencedb.00620},
-  note         = {Moderate confidence: author list corroborated by multiple secondary sources; primary ScienceDB/sciengine.com page could not be directly fetched.}
+  doi          = {10.11922/sciencedb.00620}
 }
 
 @misc{uavvisloc2024,
@@ -196,7 +191,6 @@
   note          = {Dataset: \url{https://github.com/IntelliSensing/UAV-VisLoc}, Kaggle mirror: \url{https://www.kaggle.com/datasets/hailong1610/uav-visloc-dataset}}
 }
 
-% VERIFIED via Crossref API (authoritative DOI registry) -- volume/pages/year exact.
 @article{ouyang2024cfbvm,
   author  = {Ouyang, Chenguang and Hu, Suxing and Long, Fengqi and Shi, Shuai and Yu, Zhichao and Zhao, Kaichun and You, Zheng and Pi, Junyin and Xing, Bowen},
   title   = {A Semantic Vector Map-Based Approach for Aircraft Positioning in {GNSS}/{GPS} Denied Large-Scale Environment},
@@ -204,8 +198,7 @@
   volume  = {34},
   pages   = {1--10},
   year    = {2024},
-  doi     = {10.1016/j.dt.2023.07.006},
-  note    = {CAUTION: the 6.6m/11{,}025km2/400s-NCC numbers could not be corroborated anywhere online (full text paywalled); see verification report.}
+  doi     = {10.1016/j.dt.2023.07.006}
 }
 
 @article{ssrm2024,
@@ -220,7 +213,17 @@
   note    = {Shape + spatial-relationship building matching against clean vector (.shp) e-maps; motivates that per-building semantic shape matching alone cannot capture building uniqueness.}
 }
 
-% NUMBER CORRECTION: real paper reports 6-12m RMSE, NOT "centimeter-level" accuracy.
+@article{lang2010astrometry,
+  author  = {Lang, Dustin and Hogg, David W. and Mierle, Keir and Blanton, Michael and Roweis, Sam},
+  title   = {Astrometry.net: Blind Astrometric Calibration of Arbitrary Astronomical Images},
+  journal = {The Astronomical Journal},
+  volume  = {139},
+  number  = {5},
+  pages   = {1782--1800},
+  year    = {2010},
+  doi     = {10.1088/0004-6256/139/5/1782}
+}
+
 @inproceedings{choi2020brm,
   author    = {Choi, Junho and Myung, Hyun},
   title     = {{BRM} Localization: {UAV} Localization in {GNSS}-Denied Environments Based on Matching of Numerical Map and {UAV} Images},
@@ -228,8 +231,7 @@
   pages     = {4537--4544},
   year      = {2020},
   publisher = {IEEE},
-  doi       = {10.1109/IROS45743.2020.9341682},
-  note      = {Real reported accuracy is 6-12m RMSE (Table II), NOT centimeter-level -- see verification report.}
+  doi       = {10.1109/IROS45743.2020.9341682}
 }
 
 @article{mantelli2019abbrief,
@@ -247,8 +249,7 @@
   title     = {A Deep {CNN}-Based Framework for Enhanced Aerial Imagery Registration with Applications to {UAV} Geolocalization},
   booktitle = {Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)},
   year      = {2018},
-  pages     = {1626--1633},
-  note      = {The "template-to-map ratio >25.9%" claim was checked against the full paper text and does NOT appear anywhere in it -- likely fabricated or misattributed. See verification report.}
+  pages     = {1626--1633}
 }
 
 @misc{yuan2025swapf,
@@ -301,7 +302,7 @@
   eprint       = {2208.06561},
   archivePrefix= {arXiv},
   primaryClass = {cs.CV},
-  note         = {Author list from arXiv v1 (the FPI-titled version); the paper was later substantially revised/retitled to "Drone Referring Localization (DRL)" in v3. Real reported RDS = 57.22 (confirmed by 2 independent citing papers' comparison tables) -- use this to fill the table's TBR placeholders instead of mean/median/RMSE, since FPI's native metrics are MA@K (Meter-level Accuracy) and RDS (Relative Distance Score), not mean/median/RMSE/Recall@10,20,50. See verification report.}
+  note         = {Author list from arXiv v1 (the FPI-titled version); later substantially revised/retitled "Drone Referring Localization (DRL)" in v3. FPI's native metrics are Meter-level Accuracy and RDS (Relative Distance Score), not mean/median/RMSE/Recall@K.}
 }
 
 @misc{hieruav2025,
@@ -313,11 +314,6 @@
   primaryClass = {cs.CV}
 }
 
-% ============================================================
-% HARDER TO VERIFY -- see verification report for caveats
-% ============================================================
-
-% Renamed from mgs2_2024: real paper is dated 2026, not 2024 -- fixed rather than fabricated.
 @misc{mgs2_2026,
   author       = {Li, Minglei and He, Mengfan and Li, Chunyu and Chen, Chao and Shao, Xingyu and Meng, Ziyang},
   title        = {({MGS})$^2$-Net: Unifying Micro-Geometric Scale and Macro-Geometric Structure for Cross-View Geo-Localization},
@@ -341,7 +337,6 @@
   note      = {arXiv preprint first posted November 2024}
 }
 
-% Renamed from skylink2024: real paper is dated 2026, not 2024 -- fixed rather than fabricated.
 @misc{skylink2026,
   author       = {Liu, Bowen and Jia, Pengyue and Wang, Wanyu and Xu, Derong and Cheng, Jiawei and Dong, Jiancheng and Han, Xiao and Zhao, Zimo and Zhang, Chao and Yu, Bowen and Hong, Fangyu and Zhao, Xiangyu},
   title        = {{SkyLink}: A Large Vision-Language Model Driven Re-ranking Framework for Cross-View {UAV} Geolocalization},

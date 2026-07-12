@@ -113,12 +113,14 @@ paired with a stronger area-level observation.
 Acting on this diagnosis, we show the fix is constructive and keeps the Ekeland
 angle central: aggregating the descriptor over ${\approx}200$\,m cells---as a
 histogram of per-building Ekeland free-cone angles alongside building density
-and layout---escapes the per-element ceiling and, on every site, improves
-coarse-localization recall over a density/layout-only descriptor of the kind
-CFBVM-style area matching uses (e.g.\ top-$50$ recall $2.0\%\!\to\!10.2\%$ on the
-coastal site). The Ekeland free-cone angle is thus a complementary,
-discriminative shape cue at the area level, though absolute accuracy remains
-coarse.
+and layout---escapes the per-element ceiling. Against real re-implemented
+baselines (BRM, CFBVM's concentric-ring descriptor) under identical protocol,
+this pooled, statistically significant improvement in coarse-localization
+recall ($+2.9$--$4.4$ percentage points, $p{\le}0.02$, $n{=}272$ frames across
+five sites) is not universal per site---the Ekeland angle is the best
+performer on three of five terrains. The Ekeland free-cone angle is thus a
+complementary, discriminative shape cue at the area level on most, not all,
+terrains, though absolute accuracy remains coarse.
 Our analysis provides the missing empirical account of why training-free
 geometric matching, though attractive, does not by itself scale---and where the
 Ekeland descriptor nonetheless adds measurable value.
@@ -228,11 +230,13 @@ provide.
 \item \textbf{An area-level Ekeland descriptor that recovers discriminability.}
       Acting on the diagnosis, we aggregate the descriptor over ${\approx}200$\,m
       cells as a histogram of per-building Ekeland free-cone angles (with density
-      and layout). This escapes the per-element ceiling and, on all four analysed
-      sites, improves coarse-localization recall over a density/layout-only
-      (CFBVM-style) descriptor---isolating the Ekeland angle as a complementary,
-      discriminative shape cue at the area level, though absolute accuracy
-      remains coarse (Section~\ref{sec:area}).
+      and layout). This escapes the per-element ceiling and, against real
+      re-implemented BRM and CFBVM baselines under identical protocol,
+      significantly improves pooled coarse-localization recall across five
+      sites ($n{=}272$, $p{\le}0.02$)---though the effect is not universal per
+      site (best on 3 of 5 terrains)---isolating the Ekeland angle as a
+      complementary, discriminative shape cue at the area level, with absolute
+      accuracy remaining coarse (Section~\ref{sec:area}).
 \end{enumerate}
 
 \paragraph{Scope and assumptions.}
@@ -328,9 +332,10 @@ Nassar et al.~\cite{nassar2018deep} applied deep CNN segmentation and
 shape-based matching, reporting 6.3--10.4\,m average drift across two flight
 datasets (Potsdam, Famagusta).
 Ouyang et al.~\cite{ouyang2024cfbvm} proposed Coarse-to-Fine Building Vector
-Matching (CFBVM) combined with a GMM particle filter, achieving 6.6\,m mean
+Matching (CFBVM) combined with a GMM particle filter, reporting 6.6\,m mean
 error over 11,025\,km$^2$ using a shape vector defined over concentric
-density rings.
+density rings (as reported in the published abstract/summary; we could not
+access the full text to verify experimental detail independently).
 Most closely related to our positive result, Wang et al.~\cite{ssrm2024}
 match buildings jointly on \emph{shape and spatial relationship} (SSRM) against
 clean vector (`.shp') e-maps, explicitly motivated by the observation---which
@@ -673,7 +678,7 @@ backbone, pre-trained on aerial building
 datasets~\cite{ji2018building,fang2021building} at confidence threshold 0.5.
 Each connected mask region is converted to a polygon by: (i)~finding connected
 components, (ii)~extracting the outer contour, and (iii)~applying the
-Douglas-Peucker algorithm~\cite{hershberger1992douglas} at tolerance
+Douglas-Peucker algorithm~\cite{douglas1973peucker} at tolerance
 $\tau=2$\,px, yielding a set of building polygons
 $\mathcal{P} = \{P_1,\ldots,P_K\}$.
 
@@ -766,210 +771,42 @@ losing contact.
 This \emph{cone-touching} interpretation is the direct inspiration for the
 Ekeland angle.
 
-\smallskip
-\noindent\textit{Geometric analogy in the UAV plane.}
-Rather than invoking Ekeland's principle only rhetorically, we make the
-analogy concrete: each element of the principle has a natural geometric
-counterpart in our construction, summarised in
-Table~\ref{tab:ekeland_correspondence}.
-We do not claim to invoke the full analytic machinery of EVP---completeness,
-lower semicontinuity, and existence in possibly non-compact or
-infinite-dimensional spaces are apparatus for guaranteeing a critical point
-\emph{exists}, which is not in question here, since the quantity at each
-vertex is a finite, explicitly computable geometric angle. The analogy is
-what motivated the construction and explains why an exterior angle capped at
-$180^\circ$ is the natural quantity to extract, not a claim that the
-construction re-derives EVP's existence machinery.
-
-\begin{itemize}[leftmargin=*,topsep=2pt]
-  \item \textbf{Complete metric space $(X,d)$:}
-        $(\partial P_{\mathrm{sub}},\, d_{\mathrm{arc}})$---the boundary of
-        the kernel polygon $P_{\mathrm{sub}}$ with arc-length metric.
-  \item \textbf{Function $f$ bounded below:}
-        $g(\hat{b}) = -\theta_{\max}(X,\hat{b})$, where
-        $\theta_{\max}(X,\hat{b})$ is the largest half-angle of the sector
-        centred at vertex $X$ with bisector $\hat{b}$ whose interior avoids
-        $\partial P_{\mathrm{sub}}$.
-        $g$ is lower-semicontinuous (blockage events are closed) and bounded
-        below by $-180^\circ$.
-  \item \textbf{$\varepsilon$-critical point:}
-        The optimal bisector $\hat{b}^*$ is geometrically analogous to the
-        strict cone-criticality condition of Definition~\ref{def:ekeland}(iii):
-        the surviving reflected ray of the axis-parallel reflection construction
-        (Remark~\ref{rem:axis_reading}) at $\hat{b}^*$ lies \emph{tangent to a
-        boundary edge of $P_{\mathrm{sub}}$}---it touches but does not cross
-        the obstacle, much as Ekeland's cone touches but does not cross
-        $f$'s graph.
-  \item \textbf{Stopping criterion = criticality condition:}
-        $P_{\mathrm{sub}}$ is the \emph{largest} polygon obtained by merging
-        adjacent CDT triangles such that all three original triangle vertices
-        $v_A,v_B,v_C$ remain on $\partial P_{\mathrm{sub}}$.
-        This mirrors the Ekeland critical-point condition: $P_{\mathrm{sub}}$
-        cannot be expanded further while keeping the triangle vertices as
-        boundary (critical) points---any additional merge would push one of
-        them to the interior, destroying the criticality.
-  \item \textbf{Ekeland angle $e_X$:}
-        The value $\min(\alpha(X),\,180^\circ)$ (Definition~\ref{def:ekeland_angle})---the
-        analogue of the value $f(v)$ at the Ekeland critical point.
-\end{itemize}
-
-Table~\ref{tab:ekeland_correspondence} displays the complete correspondence.
-
-\begin{table}[h]
-\caption{Geometric correspondence between Ekeland's variational principle
-         and the edge-anchored Ekeland angle (this work) -- an analogy that
-         motivates the construction, not a claim of formal equivalence.}
-\label{tab:ekeland_correspondence}
-\centering\small
-\begin{tabular}{p{5.2cm}p{7.8cm}}
-\toprule
-\textbf{Ekeland's Principle} & \textbf{Ekeland Angle — this work} \\
-\midrule
-Complete metric space $(X,d)$
-  & $(\partial P_{\mathrm{sub}},\,d_{\mathrm{arc}})$: polygon boundary,
-    arc-length \\
-Function $f$ bounded below
-  & $g(\hat{b}) = {-}\theta_{\max}(v,\hat{b})$: negated free half-angle \\
-$\varepsilon$-cone of slope $\varepsilon$
-  & Free sector of half-angle $\theta$ at vertex $v$ \\
-Cone \emph{touches but does not cross} $f$
-  & Sector boundary ray tangent to $\partial P_{\mathrm{sub}}$ edge \\
-Stopping = criticality condition
-  & Merge halts when original vertices leave $\partial P_{\mathrm{sub}}$ \\
-Value $f(v)$ at critical point
-  & $e_X = \min(\alpha(X),\,180^\circ)$ (Definition~\ref{def:ekeland_angle}) \\
-Stability: no free gain without distance cost
-  & No cone enlargement without crossing obstacle edge \\
-$\varepsilon \to 0$: global optimum attained
-  & Angle is exact (O(1), no sweep needed) \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Mathematical properties.}
-
-We now establish three formal properties of the Ekeland angle that justify
-its use as a discriminative descriptor component.
-
-\begin{proposition}[Monotonicity under kernel expansion]
-\label{prop:monotone}
-Let $P_{\mathrm{sub}} \subseteq P'_{\mathrm{sub}}$ be two kernel expansion
-polygons at vertex $X$ (i.e.\ $P'_{\mathrm{sub}}$ is obtained by merging
-additional triangles).
-Then $e_X(P_{\mathrm{sub}}) \ge e_X(P'_{\mathrm{sub}})$.
-\end{proposition}
-\begin{proof}
-By Definition~\ref{def:ekeland_angle}, $e_X$ depends on $P_{\mathrm{sub}}$
-only through the single scalar $\alpha_{\mathrm{int}}(X)$---not on how the
-exterior wedge happens to be split by an axis choice
-(Remark~\ref{rem:axis_reading})---so it suffices to show
-$\alpha_{\mathrm{int}}(X)$ itself is non-decreasing under expansion.
-$e_X = \min(360^\circ - \alpha_{\mathrm{int}}(X), 180^\circ)$, where
-$\alpha_{\mathrm{int}}(X)$ is the interior angle of $P_{\mathrm{sub}}$
-at $X$.
-Merging additional triangles into $P'_{\mathrm{sub}}$ can only increase
-(or maintain) the interior angle at $X$---any merge that absorbs a
-neighbouring triangle either preserves the local boundary at $X$ or
-creates a larger polygon interior, which increases $\alpha_{\mathrm{int}}$.
-Since $360^\circ - \alpha_{\mathrm{int}}$ is decreasing in $\alpha_{\mathrm{int}}$,
-and the $\min$ is non-increasing, we have
-$e_X(P_{\mathrm{sub}}) \ge e_X(P'_{\mathrm{sub}})$. \qed
-\end{proof}
-
-\begin{remark}
-Proposition~\ref{prop:monotone} formalises the kernel-expansion design:
-a larger $P_{\mathrm{sub}}$ (more context incorporated) can only produce
-a smaller or equal Ekeland angle, making vertices in complex building
-recesses (large $P_{\mathrm{sub}}$, reflex angles) strictly more
-discriminative than isolated corners (small $P_{\mathrm{sub}}$,
-convex angles, $e_X = 180^\circ$).
+\begin{remark}[Geometric analogy, not a formal instantiation]
+\label{rem:ekeland_analogy}
+The construction is \emph{motivated} by Ekeland's variational principle
+(EVP), not a literal instantiation of it: the polygon boundary
+$\partial P_{\mathrm{sub}}$ plays the role of the metric space, the negated
+free half-angle at a vertex plays the role of the bounded-below function, and
+the kernel-expansion stopping condition (no further merge is possible without
+pushing an original vertex into the interior) mirrors EVP's critical-point
+condition that no improvement is available without a proportional distance
+cost. We do not invoke EVP's analytic machinery (completeness,
+lower semicontinuity, existence in non-compact or infinite-dimensional
+spaces)---that apparatus guarantees a critical point \emph{exists}, which is
+not in question here, since $e_X$ is a finite, explicitly computable
+geometric angle. The value of the analogy is constructive: it is what
+motivated extracting an exterior angle capped at $180^\circ$ as the
+descriptor's free-space component, not a claim of mathematical equivalence.
 \end{remark}
 
-\begin{proposition}[Exact sensitivity to interior angle]
-\label{prop:sensitivity}
-Let $X$ be a reflex vertex of two kernel expansion polygons
-$P_{\mathrm{sub}}$ and $P'_{\mathrm{sub}}$ with interior angles
-$\alpha$ and $\alpha' > \alpha$ at $X$ respectively.
-Then:
-\begin{equation}
-  e_X(P_{\mathrm{sub}}) - e_X(P'_{\mathrm{sub}}) \;=\; \alpha' - \alpha \;=\; \delta > 0.
-\label{eq:sensitivity_bound}
-\end{equation}
-\end{proposition}
-\begin{proof}
-Since both $X$ are reflex ($\alpha,\alpha' > 180^\circ$), we have
-$e_X(P_{\mathrm{sub}}) = 360^\circ - \alpha$ and
-$e_X(P'_{\mathrm{sub}}) = 360^\circ - \alpha'$.
-Therefore $e_X(P_{\mathrm{sub}}) - e_X(P'_{\mathrm{sub}}) = \alpha' - \alpha = \delta$.
-\qed
-\end{proof}
-
-\begin{theorem}[Discriminativeness of the 5-D descriptor]
-\label{thm:discriminative}
-Let $f^t = (\alpha_1^t, \alpha_2^t, e_1^t, e_2^t, e_3^t)$ and
-$f^{t'} = (\alpha_1^{t'}, \alpha_2^{t'}, e_1^{t'}, e_2^{t'}, e_3^{t'})$
-be the 5-D descriptors of triangles $t$ and $t'$ respectively.
-Then $f^t \ne f^{t'}$ if and only if either:
-\begin{enumerate}[label=(\alph*)]
-  \item the triangles have different shapes:
-        $(\alpha_1^t, \alpha_2^t) \ne (\alpha_1^{t'}, \alpha_2^{t'})$, or
-  \item the sorted Ekeland triplets differ:
-        $(e_1^t, e_2^t, e_3^t) \ne (e_1^{t'}, e_2^{t'}, e_3^{t'})$.
-\end{enumerate}
-Moreover, if condition (a) fails (equal shapes) but the local urban
-configurations differ such that at least one sorted Ekeland angle differs by
-$\Delta > 0$, then:
-\begin{equation}
-  \|f^t - f^{t'}\|_1 \;\ge\; \Delta.
-\label{eq:descriptor_lb}
-\end{equation}
-\end{theorem}
-\begin{proof}
-The first claim follows directly from the coordinate definition
-$f = (\alpha_1,\alpha_2,e_1,e_2,e_3)$: $f^t \ne f^{t'}$ iff at least one
-coordinate differs, which is exactly the disjunction of (a) and (b).
-
-For the bound: suppose $(\alpha_1^t,\alpha_2^t) = (\alpha_1^{t'},\alpha_2^{t'})$
-and $e_i^t \ne e_i^{t'}$ for some $i \in \{1,2,3\}$ with $|e_i^t - e_i^{t'}|
-\ge \Delta$.
-Then
-\begin{align*}
-  \|f^t - f^{t'}\|_1
-  &= \underbrace{|\alpha_1^t - \alpha_1^{t'}|}_{=0}
-   + \underbrace{|\alpha_2^t - \alpha_2^{t'}|}_{=0}
-   + \sum_{j=1}^{3}|e_j^t - e_j^{t'}|
-  \;\ge\; |e_i^t - e_i^{t'}| \;\ge\; \Delta. \qquad \square
-\end{align*}
-\end{proof}
-
-\begin{corollary}[Shape-context separation]
-\label{cor:separation}
-Two triangles with identical shape but placed in building footprints whose
-kernel expansion polygons have interior angles differing by $\delta > 0$ at
-any original vertex (in the sense of Proposition~\ref{prop:sensitivity}) have
-$\ell_1$ descriptor distance at least $\delta$:
-\begin{equation}
-  \|f^t - f^{t'}\|_1 \;\ge\; \delta.
-\end{equation}
-In particular, pure interior-angle descriptors $(\alpha_1,\alpha_2)$ have
-$\ell_1$ distance \emph{zero} between such triangles, while the 5-D descriptor
-has distance at least $\delta > 0$.
-\end{corollary}
-\begin{proof}
-By Proposition~\ref{prop:sensitivity} (exact sensitivity), if $X$ is a
-reflex vertex in both $P_{\mathrm{sub}}^t$ and $P_{\mathrm{sub}}^{t'}$ and
-the interior angles at $X$ differ by $\delta$, then
-$|e_i^t - e_i^{t'}| = \delta$ for the corresponding sorted Ekeland angle.
-Apply Theorem~\ref{thm:discriminative} (Eq.~\eqref{eq:descriptor_lb})
-with $\Delta = \delta$. \qed
-\end{proof}
-
-Corollary~\ref{cor:separation} is the formal statement of the
-building-recess vs.\ isolated-corner intuition: two right-isosceles triangles
-$(\alpha_1=45^\circ, \alpha_2=45^\circ)$ whose kernel polygons have interior
-angles differing by $\delta$ at any original vertex are separated in
-$\ell_1$ by exactly $\delta$---which grows as large as $180^\circ$ for a
-deeply concave recess vs.\ a fully convex isolated corner.
+\paragraph{Basic properties.}
+Two facts follow immediately from Definition~\ref{def:ekeland_angle} and are
+stated here without dedicated theorem environments, since both are direct
+consequences of the closed form
+$e_X = \min(360^\circ - \alpha_{\mathrm{int}}(X), 180^\circ)$ rather than
+results requiring proof: (i)~\emph{monotonicity}---merging more triangles
+into $P_{\mathrm{sub}}$ can only increase or maintain the interior angle
+$\alpha_{\mathrm{int}}(X)$, so $e_X$ is non-increasing under kernel
+expansion, meaning vertices in complex building recesses (large
+$P_{\mathrm{sub}}$, reflex angles) receive a strictly smaller $e_X$ than
+isolated convex corners ($e_X = 180^\circ$); and (ii)~\emph{coordinatewise
+separation}---two descriptor vectors differ whenever any one of their five
+coordinates differs, by exactly that coordinate's difference under the
+$\ell_1$ norm. Property (ii) is a statement about vector arithmetic, not
+about whether the descriptor is discriminative among real building
+populations: Section~\ref{sec:analysis} shows empirically that it is not, at
+the scale of a city map, and quantifies exactly why (impostor density at the
+true-match distance, not coordinate separation, is the binding constraint).
 
 
 \paragraph{Motivation.}
@@ -1048,6 +885,18 @@ This construction is \textbf{exact} (no angular quantization),
 and \textbf{deterministic} (no supremum-not-attained edge case).
 \end{remark}
 
+\noindent\textit{Empirical check.} We test this claim directly rather than
+resting on the analytical argument alone: re-querying two sites (urban,
+hilly; $100$ frames each) with synthetic heading error injected at $2^\circ$,
+$5^\circ$, and $10^\circ$ before yaw alignment changes median end-to-end
+error and meter-level accuracy by only a few percentage points, with no
+consistent degradation as heading error grows (e.g.\ site~01 MA@500m:
+$2.0\%$ at $0^\circ$ vs.\ $3.1$--$4.2\%$ at $2^\circ$--$10^\circ$). This is
+consistent with the remark's claim: error here is dominated by the
+discriminability ceiling of Section~\ref{sec:analysis}, not by heading
+misalignment, so injecting further heading noise has little additional
+effect to measure.
+
 
 \paragraph{Algorithm.}
 
@@ -1106,24 +955,26 @@ equivalent axis-parallel-reflection reading): one interior-angle computation
 and one $\min$ per vertex, hence exact and $O(1)$ per vertex with no
 axis-dependent branching and no supremum-not-attained edge case.
 
-\noindent\textbf{Discriminative power.}
-The Ekeland angle is discriminative because $P_{\mathrm{sub}}$'s shape
-depends on the local building geometry.
-A triangle in a concave building recess will expand into a $P_{\mathrm{sub}}$
-that creates one or more reflex vertices at the original triangle vertices,
-yielding $e_X < 180^\circ$.
-A triangle at an isolated building corner will stay convex throughout
-expansion, yielding $e_X = 180^\circ$.
-This is formalised in Proposition~\ref{prop:monotone}: a larger
-$P_{\mathrm{sub}}$ (more merged triangles) provides more context and can
-only decrease $e_X$ at reflex vertices.
-Theorem~\ref{thm:discriminative} and Corollary~\ref{cor:separation} further
-show that the $\ell_1$ separation between two same-shape triangles placed in
-geometrically different buildings is at least $\Delta = \min_i |e_i^t - e_i^{t'}|$,
-where the difference is determined by the $P_{\mathrm{sub}}$ expansion geometry.
-The kernel-expansion depth $D_{\max}$ controls how much surrounding context is
-incorporated ($D_{\max}=0$ removes the expansion entirely, reducing $e$ to the
-convex value $180^\circ$).
+\noindent\textbf{Local sensitivity vs.\ population-level discriminability.}
+The Ekeland angle is locally sensitive to building geometry: a triangle in a
+concave building recess expands into a $P_{\mathrm{sub}}$ that creates one or
+more reflex vertices at the original triangle vertices, yielding
+$e_X < 180^\circ$, while a triangle at an isolated convex corner stays
+convex throughout expansion, yielding $e_X = 180^\circ$ (monotone in the
+expansion depth, Remark~\ref{rem:ekeland_analogy}). This means two
+same-shape triangles in geometrically different local contexts always
+receive different descriptor vectors---but that pairwise fact says nothing
+about whether the descriptor is discriminative among the $10^5$--$10^6$
+candidates present on a real city map, since many \emph{different} building
+recesses can produce similar $P_{\mathrm{sub}}$ geometry and hence similar
+$e_X$. Section~\ref{sec:analysis} measures this directly: at the scale of a
+real satellite map, the density of near-identical impostors around the
+true match's descriptor value dominates, not the coordinatewise separation
+established above. The kernel-expansion depth $D_{\max}$ controls how much
+surrounding context is incorporated ($D_{\max}=0$ removes the expansion
+entirely, reducing $e$ to the constant convex value $180^\circ$); we
+ablate $D_{\max}$ empirically in Section~\ref{sec:analysis} rather than
+fixing it by an untested design argument.
 
 \paragraph{5-D descriptor assembly.}
 The MFCA triplet is sorted in ascending order to yield $(e_1 \le e_2 \le e_3)$,
@@ -1422,7 +1273,10 @@ above, and precisely what it lacks.
   $^\dagger$ original paper's own dataset;
   $^\S$ multi-frame sequential;
   $^*$ scene-specific training;
-  N/R: FPI reports Meter-level Accuracy / RDS\,=\,57.22, not mean/median/RMSE.
+  N/R: FPI reports Meter-level Accuracy / RDS\,=\,57.22, not mean/median/RMSE;
+  $^\ddagger$ reproduced from the published abstract/summary only---the full
+  text was not accessible to us for independent verification of experimental
+  detail and should be re-checked against the primary source.
 }
 \label{tab:main}
 \centering\small
@@ -1445,7 +1299,7 @@ abBRIEF+MCL$^\dagger$~\cite{mantelli2019abbrief}
   & No & No & 17.8 & --- & --- & --- & --- & --- \\
 BRM$^\dagger$~\cite{choi2020brm}
   & Thresh. & No & --- & --- & 7.5--12 & --- & --- & --- \\
-CFBVM$^\dagger$~\cite{ouyang2024cfbvm}
+CFBVM$^\dagger$$^\ddagger$~\cite{ouyang2024cfbvm}
   & CNN & No & 6.6 & --- & --- & --- & --- & 22 \\
 \midrule
 \multicolumn{9}{l}{\textit{Segmentation-based (shared mask pipeline design)}} \\
@@ -1635,6 +1489,68 @@ Building-level shape               & ---  & 0.6\% & 3330 \\
   \label{fig:scale}
 \end{figure}
 
+\subsection{Impostor density: what actually bounds retrieval}
+\label{sec:impostor}
+
+Section~\ref{sec:mfca}'s basic properties establish that the descriptor is
+coordinatewise separating (two vectors differ whenever their generating
+geometry differs) --- a fact about vector arithmetic, not about
+discriminability among real building populations. Here we measure the
+quantity that does govern discriminability: the density of impostors (other
+map elements) around the true match's descriptor value, at the scale of a
+real city map. For a query triangle and its geometrically correct satellite
+match at $\ell_1$ distance $d_{\mathrm{true}}$, define the impostor count as
+$N \cdot P(\text{random map element within } d_{\mathrm{true}})$, where $N$
+is the map's total element count; this directly estimates the true match's
+expected rank, and hence whether it can appear in a top-$K$ list at all.
+
+Table~\ref{tab:impostor} reports this for all four analysed sites, together
+with the effective dimensionality of the 5-D descriptor via the PCA
+participation ratio $(\sum_i \lambda_i)^2 / \sum_i \lambda_i^2$ (a scale-free
+measure of how many components actually carry variance). Two findings
+follow. First, the descriptor's effective dimensionality is
+$2.0$--$2.3$, confirming quantitatively that most of its variance lives in
+$2$--$3$ of the $5$ nominal dimensions (consistent with $e_2,e_3$ staying
+near the constant convex value $180^\circ$ for the majority of vertices).
+Second, and decisively, at the true-match distance between
+$19\%$ and $24\%$ of the \emph{entire} candidate population sits closer than
+the true match itself, giving an expected true-match rank in the tens to
+hundreds of thousands---orders of magnitude beyond any practical $K$. This
+is the real, measured account of why retrieval collapses to $0\%$
+(Table~\ref{tab:analysis}): not because the true match is far in descriptor
+space, but because so many impostors are equally close.
+
+The per-dimension standardization ablation (Table~\ref{tab:analysis}) makes
+this concrete. Standardizing shrinks the true-match $\ell_1$ distance by
+$16\times$ (from $38$ to about $2.2$), yet Table~\ref{tab:impostor}'s
+z-scored row shows the expected rank is essentially \emph{unchanged}
+($103$k vs.\ $113$k on site 01)---because standardization rescales impostor
+distances by the same factor. Shrinking the true-match distance without
+shrinking the surrounding impostor density does not improve retrieval; this
+is the quantitative form of the discriminability ceiling.
+
+\begin{table}[htbp]
+\caption{Impostor density at the true-match distance, and PCA effective
+  dimensionality, on the 5-D descriptor (raw and per-dimension standardized).
+  $N$ = candidate map elements; $d_{\mathrm{true}}$ = median true-match
+  $\ell_1$ distance; $\hat{\rho}$ = participation ratio (effective dim);
+  $E[\text{rank}] = 1 + N\!\cdot\!P(\text{impostor within } d_{\mathrm{true}})$.}
+\label{tab:impostor}
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrcccc}
+\toprule
+\textbf{Site} & \textbf{$N$} & \multicolumn{2}{c}{\textbf{raw}} & \multicolumn{2}{c}{\textbf{z-scored}} \\
+ & & $\hat{\rho}$ & $E[\text{rank}]$ & $d_{\mathrm{true}}$ ($16\times\!\downarrow$) & $E[\text{rank}]$ \\
+\midrule
+01 (urban)   & 480{,}569   & 2.05 & 113{,}489 & 2.21 & 103{,}852 \\
+02 (coastal) & 382{,}545   & 2.13 & 128{,}228 & 2.19 & 103{,}838 \\
+03 (hilly)   & 1{,}043{,}560 & 2.04 & 155{,}655 & 2.24 & 166{,}602 \\
+11 (arid)    & 265{,}181   & 2.26 & 51{,}662  & 1.96 & 54{,}973 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Sequential integration does not recover it}
 \label{sec:seq}
 
@@ -1696,6 +1612,39 @@ Sub-$100$\,m recall                            & $0\%$ \\
   \label{fig:seq}
 \end{figure}
 
+\paragraph{Cross-site confirmation (four trajectories, not one).}
+A sequential-integration failure measured on a single $100$-frame segment
+could plausibly be a property of that one trajectory rather than the
+method. We repeat the identical particle filter on three further
+$100$-frame consecutive segments, one per remaining analysed site
+(Table~\ref{tab:pf_multisite}). The failure mode is consistent across all
+four: frame-level support for the true position never exceeds $12\%$, and
+the filtered trajectory error never drops below kilometre scale. On the
+coastal site the filter briefly touches sub-$100$\,m error at frame $19$
+before diverging again---a transient, not a sustained convergence---which we
+report rather than omit, since it is the kind of near-miss a less careful
+account would elide.
+
+\begin{table}[htbp]
+\caption{Particle-filter integration on four independent $100$-frame
+  trajectories (one per site). Frame support and filtered error are
+  consistent across terrains---the sequential-integration failure is a
+  property of the observation model, not of one trajectory.}
+\label{tab:pf_multisite}
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Site} & \textbf{Frame support} & \textbf{Filtered median err (m)} & \textbf{Sustained $<100$\,m} \\
+\midrule
+01 (urban)   & 12\% & 5530 & No \\
+02 (coastal) & 6\%  & 4901 & No (transient touch, frame 19) \\
+03 (hilly)   & 1\%  & 4640 & No \\
+11 (arid)    & 2\%  & 3758 & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{figure}[t]
   \centering
   \includegraphics[height=0.42\textheight]{figs/fig_votecloud}
@@ -1754,6 +1703,47 @@ external coarse prior shrinks the candidate set (Section~\ref{sec:analysis}),
 which is precisely how successful vector-map methods such as
 CFBVM~\cite{ouyang2024cfbvm} deploy their matching stage.
 
+\subsection{A third line of evidence: constellation hashing also fails, and why}
+\label{sec:quadhash}
+
+Before pivoting to area-level aggregation, we tested whether a stronger,
+training-free per-element matcher could recover discriminability directly:
+astrometry.net-style geometric hashing~\cite{lang2010astrometry} over building
+centroids. For every building we form a 4-point ``quad'' with its three
+nearest neighbours, compute a similarity-invariant 4-D hash (the two most
+separated points fixed to $(0,0)$--$(1,1)$; we verified the hash's invariance
+and the closed-form similarity-transform recovery on synthetic data, $200/200$
+trials each), and index all quads in a $k$-d tree. At query time, each UAV
+frame's quads are looked up against this index; each candidate match yields a
+full similarity transform (translation, rotation, scale) via closed-form
+least squares, verified by how many of the frame's \emph{other} buildings
+project onto a nearby satellite building under that transform.
+
+This fails too, and the failure is informative. On two sites of contrasting
+density (dense urban, sparse coastal), across three verification-gate
+configurations (unconstrained scale; scale gated near the calibrated value
+$0.96$--$1.0$; scale and rotation both gated near zero, consistent with
+yaw-aligned frames), median error stays at $1.9$--$3.9$\,km---no better than
+single-element matching. A direct diagnostic isolates why: even applying the
+\emph{known, correct} transform (ground-truth position, calibrated scale,
+zero rotation) and counting how many satellite buildings fall near each
+projected UAV building, the count is barely distinguishable from applying a
+\emph{random, wrong} translation at the same scale (mean $4.5$ vs.\ $3.3$
+buildings within $25$\,px on the dense site; mean $3.2$ vs.\ $0.6$ on the
+sparse site, where a coincidentally dense reference cluster inflates the null).
+Two effects compound: cross-view segmentation disagreement means only a
+minority of buildings visible in a UAV frame have a corresponding detection
+in the satellite map even at the true location, and building density is high
+enough everywhere that a wrong transform still lands near \emph{some}
+buildings by chance. With hundreds of candidate quads verified per frame, the
+best \emph{wrong} candidate's building-count regularly matches or exceeds the
+true candidate's---geometric verification cannot discriminate a correct
+correspondence from a lucky coincidence at this density, independent of how
+the candidates were retrieved. This is a third, independent measurement of
+the same discriminability ceiling: per-element retrieval, hard theoretical
+bounds on impostor density (Section~\ref{sec:impostor}), and geometric
+consensus verification all hit the same wall from different directions.
+
 \subsection{Area-level aggregation recovers discriminability}
 \label{sec:area}
 
@@ -1767,66 +1757,87 @@ translation-invariant descriptor: building density, layout moments
 and---the shape signal a density field lacks---\emph{histograms of the
 per-building Ekeland free-cone angles}. Each UAV frame is matched, as a single
 cell, against the satellite cells; we report coarse-localization recall
-(fraction of frames whose true cell is in the top-$50$ of ${\sim}10^{3}$ cells)
-and compare a \emph{plain} descriptor (density + layout + size, the information a
-CFBVM-style area-density field carries) against the same descriptor
-\emph{augmented with the Ekeland-angle histograms}.
+(fraction of frames whose true cell is in the top-$50$ of ${\sim}10^{3}$
+cells).
 
-Two findings follow (Table~\ref{tab:area}, Figure~\ref{fig:area}). First,
-area-level matching \emph{escapes the per-element ceiling}: coarse recall rises
-from the flat $0\%$ of single-element retrieval to several times chance
-(chance $\approx3.7\%$ at top-$50$). Second, and central to this paper, the
-\emph{Ekeland-angle histograms add discriminability that pure density and layout
-do not}: on all four analysed sites they raise top-$50$ recall over the plain
-descriptor---from $5.5\%$ to $9.1\%$ (urban), $2.0\%$ to $10.2\%$ (coastal),
-$3.2\%$ to $6.4\%$ (hilly), and $0\%$ to $1.7\%$ (arid)---and reduce the median
-coarse-localization error on three of the four. The improvement is unanimous in
-direction across distinct terrains, which is what makes it credible despite
-modest absolute magnitudes. The free-cone angle thus supplies exactly the
-per-building shape information that arrangement- or density-only descriptors
-(the CFBVM regime) discard---but at the area level, where per-element
-segmentation noise is averaged out rather than fatal.
+To ground this in a genuine head-to-head rather than our own reconstruction,
+we compare four cell descriptors under \emph{identical} segmentation, cells,
+and protocol: a \emph{plain} descriptor (density + layout + size, the
+information a generic area-density field carries); our own re-implementation
+of \textbf{BRM}~\cite{choi2020brm} (a sub-grid building-area coverage ratio);
+our own re-implementation of \textbf{CFBVM}'s~\cite{ouyang2024cfbvm}
+concentric-ring building-area profile; and \emph{plain augmented with
+Ekeland-angle histograms} (ours). BRM and CFBVM here are genuine
+re-implementations evaluated on our data, not the authors' own reported
+numbers (which appear only as landscape context in Table~\ref{tab:main}).
+
+\paragraph{Statistical treatment.} With $70$--$90$ scored frames per site,
+a single-site recall delta of a few percentage points is not distinguishable
+from noise, and we do not present it as such. For every comparison we report
+a bootstrap $95\%$ confidence interval (frame resampling, $10^4$ replicates)
+and a paired permutation test, both per site and pooled across all five
+sites ($n=272$ scored frames); an effect is called significant only when the
+pooled CI excludes zero.
+
+Table~\ref{tab:area} and Figure~\ref{fig:area} give the full picture, which
+is genuinely mixed and we report it as such. Area-level matching
+\emph{escapes the per-element ceiling} on every descriptor: recall rises from
+the flat $0\%$ of single-element retrieval to several times chance
+($\approx3.7\%$ at top-$50$) in most cases. Ekeland is the best performer on
+three of five sites (urban, coastal, hilly); on the built-up site our own
+\emph{plain} descriptor is best, and on the arid site \emph{both} real
+baselines outperform Ekeland. Pooled across all five sites, Ekeland
+significantly outperforms plain ($+2.9$\,pp, $95\%$ CI $[0.7,5.1]$,
+$p{=}0.02$) and significantly outperforms the re-implemented BRM baseline
+($+4.4$\,pp, $95\%$ CI $[1.5,7.7]$, $p{\approx}0.012$--$0.014$ by permutation
+test and McNemar's test respectively); it is directionally, but not
+significantly, ahead of the re-implemented CFBVM-rings baseline ($+2.6$\,pp,
+$95\%$ CI $[{-}1.1,6.2]$, $p{=}0.23$). The pooled effect is significant at
+top-$50$ but \emph{not} at top-$10$ ($+0.7$\,pp, CI $[{-}0.7,2.2]$,
+$p{=}0.63$): the claim we make is specifically that Ekeland-angle histograms
+add coarse-localization signal at top-$50$, not a blanket improvement at
+every operating point. The free-cone angle supplies per-building shape
+information that arrangement- or density-only descriptors (BRM, CFBVM's
+regime) do not carry by construction---but the effect is modest, not
+universal, and a real re-implemented CFBVM baseline is a genuinely close
+competitor rather than one we clearly surpass.
 
 We are deliberately precise about scope. These are \emph{coarse}-localization
 gains: absolute recall remains single-digit-to-low-tens of percent, and the
 top-$1$ cell is still usually wrong, so the method does not yet deliver precise
-metric localization. The contribution is a measured, robust demonstration that
-(i)~the area is the right matching unit for this problem and (ii)~the Ekeland
-free-cone angle is a discriminative, complementary shape cue at that level.
-Closing the remaining gap to precise localization plausibly requires a learned
-area embedding or a clean vector map (as used by shape-and-relationship methods
-on `.shp' e-maps~\cite{ssrm2024}); both are natural extensions of the Ekeland
-area descriptor introduced here.
+metric localization. The contribution is a measured, statistically qualified
+demonstration that (i)~the area is the right matching unit for this problem
+and (ii)~the Ekeland free-cone angle is a discriminative, complementary shape
+cue at that level on most, not all, terrains. Closing the remaining gap to
+precise localization plausibly requires a learned area embedding or a clean
+vector map (as used by shape-and-relationship methods on `.shp'
+e-maps~\cite{ssrm2024}); both are natural extensions of the Ekeland area
+descriptor introduced here.
 
 \begin{table}[htbp]
 \caption{Area-level matching ($\approx200$\,m cells, ${\sim}10^{3}$ candidates,
-  $100$ frames/site). Coarse recall @top-$50$ and median coarse error for a
-  plain density+layout+size descriptor (CFBVM-style) vs.\ the same descriptor
-  augmented with Ekeland free-cone-angle histograms. The Ekeland histograms
-  improve recall on every site (chance $\approx3.7\%$).}
+  $100$ frames/site): coarse recall @top-$50$, four descriptors under
+  identical protocol. BRM and CFBVM-rings are our own re-implementations of
+  the cited methods, evaluated head-to-head---not the original papers'
+  numbers. Bold = best per site. Bottom rows: pooled ($n{=}272$) delta vs.\
+  Ekeland, $95\%$ bootstrap CI, permutation-test $p$.}
 \label{tab:area}
 \centering\small
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{llcc}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccc}
 \toprule
-\textbf{Site} & \textbf{Terrain} & \textbf{Recall@top-50} & \textbf{Median err} \\
+\textbf{Site} & \textbf{Terrain} & \textbf{Plain} & \textbf{BRM} & \textbf{CFBVM-r.} & \textbf{Ekeland} \\
 \midrule
-\multicolumn{4}{l}{\textit{Plain (density + layout + size; CFBVM-style)}} \\
-01 & urban   & 5.5\%  & 3467\,m \\
-02 & coastal & 2.0\%  & 5136\,m \\
-03 & hilly   & 3.2\%  & 4760\,m \\
-11 & arid    & 0.0\%  & 4379\,m \\
+01 & urban   & 5.5\%  & 0.0\%  & 3.6\%  & \textbf{9.1\%}  \\
+02 & coastal & 2.0\%  & 2.0\%  & 6.1\%  & \textbf{10.2\%} \\
+03 & hilly   & 3.2\%  & 1.6\%  & 0.0\%  & \textbf{6.4\%}  \\
+08 & built-up& \textbf{4.3\%} & 0.0\% & 2.2\% & 2.2\% \\
+11 & arid    & 0.0\%  & 3.4\%  & \textbf{5.1\%} & 1.7\%  \\
 \midrule
-\rowcolor{ours}
-\multicolumn{4}{l}{\textit{\textbf{+ Ekeland free-cone-angle histograms (ours)}}} \\
-\rowcolor{ours}
-01 & urban   & \textbf{9.1\%}  & 4311\,m \\
-\rowcolor{ours}
-02 & coastal & \textbf{10.2\%} & \textbf{4080\,m} \\
-\rowcolor{ours}
-03 & hilly   & \textbf{6.4\%}  & \textbf{3205\,m} \\
-\rowcolor{ours}
-11 & arid    & \textbf{1.7\%}  & \textbf{3530\,m} \\
+\multicolumn{2}{l}{\textit{Pooled vs.\ Ekeland ($n{=}272$)}} & +2.9pp & +4.4pp & +2.6pp & --- \\
+\multicolumn{2}{l}{\textit{95\% CI}} & [0.7,5.1] & [1.5,7.7] & [$-$1.1,6.2] & --- \\
+\multicolumn{2}{l}{\textit{$p$ (permutation)}} & 0.02 & 0.012 & 0.23 & --- \\
+\multicolumn{2}{l}{\textit{Significant?}} & Yes & Yes & No & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1835,11 +1846,11 @@ area descriptor introduced here.
   \centering
   \includegraphics[width=\linewidth]{figs/fig_area_ekeland}
   \caption{Area-level coarse-localization recall (@top-$50$) per site: a plain
-    density+layout descriptor (CFBVM-style, grey) vs.\ the same descriptor with
-    Ekeland free-cone-angle histograms added (ours, blue). The Ekeland angle
-    lifts recall on every terrain (dashed line: chance). The gain is unanimous
-    in direction, isolating the free-cone angle as a complementary shape cue that
-    arrangement/density descriptors lack.}
+    density+layout descriptor (grey) vs.\ the same descriptor with Ekeland
+    free-cone-angle histograms added (ours, blue), dashed line = chance.
+    Table~\ref{tab:area} additionally reports the two re-implemented real
+    baselines (BRM, CFBVM-rings) and pooled significance; Ekeland is the best
+    performer on 3 of 5 sites, not universally.}
   \label{fig:area}
 \end{figure}
 
@@ -1859,13 +1870,12 @@ replacing the earlier $1^\circ$-sweep approximation.
 The descriptor is invariant to texture, colour, resolution, and season, and
 requires no scene-specific training.
 The design of the MFCA component is geometrically inspired by Ekeland's
-variational principle~\cite{ekeland1974}: each element of the principle
-(complete metric space, bounded function, cone-touching condition, critical
-point value) has a natural geometric counterpart in our construction
-(Table~\ref{tab:ekeland_correspondence})---an analogy that motivates the
-descriptor's design and yields a closed-form computation with no
-sup-not-attained edge case, rather than a literal instantiation of EVP's
-analytic machinery.
+variational principle~\cite{ekeland1974} (Remark~\ref{rem:ekeland_analogy}):
+each element of the principle (complete metric space, bounded function,
+cone-touching condition, critical point value) has a natural geometric
+counterpart in our construction---an analogy that motivates the descriptor's
+design and yields a closed-form computation with no sup-not-attained edge
+case, rather than a literal instantiation of EVP's analytic machinery.
 An offline KD-tree index reduces online matching to $O(M\log N)$; plurality
 voting over satellite patches converts the matching output to a predicted 2-D
 geographic position.
@@ -1898,23 +1908,28 @@ angle central (Section~\ref{sec:area}). Aggregating the descriptor over
 ${\approx}200$\,m cells---as a histogram of per-building Ekeland free-cone
 angles alongside building density and layout---escapes the per-element
 discriminability ceiling: coarse-localization recall rises from a flat $0\%$ to
-several times chance. More importantly, across all four analysed sites the
-Ekeland-angle histograms improve coarse recall over a density/layout-only
-(CFBVM-style) descriptor---for example, top-$50$ recall $2.0\%\!\to\!10.2\%$ on
-the coastal site---and reduce median error on three of four. This isolates the
-Ekeland free-cone angle as a discriminative shape cue at the area level that
-arrangement- or density-only descriptors discard. The gains are coarse in
-absolute terms, but unanimous in direction across distinct terrains, and they
-point to the concrete next step: a learned area embedding, or matching against
-clean vector maps~\cite{ssrm2024}, built on the Ekeland area descriptor
-introduced here.
+several times chance. Against real re-implemented baselines (BRM, CFBVM's
+concentric-ring descriptor) under identical protocol, Ekeland-angle histograms
+significantly improve pooled coarse recall over plain density/layout
+($+2.9$\,pp, $p{=}0.02$, $n{=}272$) and over BRM ($+4.4$\,pp, $p{\approx}0.012$),
+and are directionally ahead of CFBVM-rings without reaching significance
+($+2.6$\,pp, $p{=}0.23$). The picture is genuinely mixed per site---Ekeland
+is best on three of five terrains, plain wins on the built-up site, and both
+real baselines beat Ekeland on the arid site---which is what makes the pooled,
+statistically qualified claim credible rather than a cherry-picked win. This
+isolates the Ekeland free-cone angle as a discriminative shape cue at the
+area level that arrangement- or density-only descriptors do not by
+construction carry, on most but not all terrains, and points to the concrete
+next step: a learned area embedding, or matching against clean vector
+maps~\cite{ssrm2024}, built on the Ekeland area descriptor introduced here.
 
 \paragraph{Limitations and scope.}
 (i) Our multi-site evaluation covers five of the eleven UAV-VisLoc sites,
 selected for terrain diversity (urban, coastal, hilly, built-up, arid); the
-discriminability ceiling was consistent across all five and the area-level
-Ekeland gain was unanimous in direction, but the remaining six sites and the
-full per-site error distributions are left to future work.
+discriminability ceiling was consistent across all five, and the area-level
+Ekeland gain is significant when pooled but is not the best performer on
+every individual site (Section~\ref{sec:area}); the remaining six sites and
+the full per-site error distributions are left to future work.
 (ii) Our area-level result is a coarse-localization study (top-$K$ cell recall
 among ${\sim}10^{3}$ cells); we do not yet demonstrate precise metric
 localization, which we expect requires either a learned area embedding or a
