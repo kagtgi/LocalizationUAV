@@ -92,12 +92,14 @@ def cone_wedge_angles(tri, region_triangles, vertex_idx):
     v_next = p_next - p_curr
     ang_prev = np.degrees(np.arctan2(v_prev[1], v_prev[0])) % 360
     ang_next = np.degrees(np.arctan2(v_next[1], v_next[0])) % 360
-    # exterior (free) cone spans from the "next" boundary ray to the "prev" one
-    # going the SHORT way around outside the polygon interior
+    # interior spans CCW from ang_next to ang_prev (alpha_int); exterior is the
+    # complement, so the free wedge must start AT ang_prev and sweep CCW --
+    # starting at ang_next instead (as an earlier version of this code did)
+    # sweeps directly into the polygon's own interior first.
     alpha_int = (ang_prev - ang_next) % 360.0
     alpha_ext = 360.0 - alpha_int
     e_v = min(alpha_ext, 180.0)
-    return ang_next, ang_next + e_v, e_v, p_curr
+    return ang_prev, ang_prev + e_v, e_v, p_curr
 
 
 def panel_a(ax):

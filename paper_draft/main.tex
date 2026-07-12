@@ -1804,6 +1804,31 @@ open water, rather than concentrating near the true position.
   \label{fig:top100demo}
 \end{figure}
 
+The same pooled-candidate view, repeated on an independent urban/industrial
+site (04, Taizhou-6, not part of the five-site benchmark above) added purely
+as a qualitative cross-terrain check, confirms the pattern is not an artefact
+of one map (Figure~\ref{fig:top100demo04}). This frame's Mask R-CNN
+segmentation returns a single large polygon (yielding $82$ query triangles,
+fewer than the site-01 frame's $300$)---a lower building count typical of
+this site's large industrial structures relative to the dense residential
+blocks of Changjiang-20---but the qualitative result is identical: of
+$8{,}200$ pooled candidates, only $11$ ($0.1\%$) land within $500$\,px of
+the true position.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figs/fig_top100_demo_04}
+  \caption{The same top-$100$-per-triangle demonstration as
+    Figure~\ref{fig:top100demo}, on site 04 (Taizhou-6, urban/industrial)---a
+    qualitative cross-terrain check, not part of the quantitative five-site
+    benchmark. (a)~Candidates again scatter across the whole map.
+    (b)~The UAV query image: large industrial structures, unlike the
+    residential blocks of site 01. (c)~Zoomed at the true position: only
+    $11/8{,}200$ ($0.1\%$) pooled candidates land within $500$\,px, the same
+    qualitative failure mode on a visibly different terrain.}
+  \label{fig:top100demo04}
+\end{figure}
+
 \paragraph{Runtime and scale.}
 The pipeline is nonetheless efficient and compact, as intended:
 descriptor extraction and a single $K$-NN query take ${\approx}0.8$\,s per image
