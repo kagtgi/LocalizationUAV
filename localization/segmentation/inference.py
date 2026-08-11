@@ -242,3 +242,52 @@ def polygons_from_soft_mask(
     )
     polygons = [p for p in polygons if len(p) >= 3]
     return binary_mask, polygons
+
+
+def visualize_segmented_buildings(
+    image: Image.Image,
+    model,
+    device,
+    score_threshold: float = 0.5,
+    min_area: float = 50.0,
+    tolerance_px: float = 2.0,
+    max_size_quantile: float = 0.995,
+    contour_method: str = "marching_squares",
+    mask_color: Tuple[int, int, int] = (0, 255, 0),
+    alpha: float = 0.45,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return a side-by-side RGB view of the image and its binary building mask."""
+    binary_mask, _ = segment_image(
+        image=image,
+        model=model,
+        device=device,
+        score_threshold=score_threshold,
+        min_area=min_area,
+        tolerance_px=tolerance_px,
+        max_size_quantile=max_size_quantile,
+        contour_method=contour_method,
+    )
+
+    img_rgb = np.asarray(image.convert("RGB"))
+    mask_uint8 = (binary_mask > 0).astype(np.uint8) * 255
+    mask_rgb = cv2.cvtColor(mask_uint8, cv2.COLOR_GRAY2RGB)
+
+    overlay = img_rgb.copy()
+    fill = np.zeros_like(img_rgb, dtype=np.uint8)
+    fill[:] = np.array(mask_color, dtype=np.uint8)
+    overlay[mask_uint8 > 0] = (
+        (1.0 - float(alpha)) * overlay[mask_uint8 > 0] + float(alpha) * fill[mask_uint8 > 0]
+    ).astype(np.uint8)
+
+    h = max(img_rgb.shape[0], overlay.shape[0], mask_rgb.shape[0])
+    if img_rgb.shape[0] != h:
+        pad = h - img_rgb.shape[0]
+        img_rgb = np.pad(img_rgb, ((0, pad), (0, 0), (0, 0)), mode="constant")
+    if overlay.shape[0] != h:
+        pad = h - overlay.shape[0]
+        overlay = np.pad(overlay, ((0, pad), (0, 0), (0, 0)), mode="constant")
+    if mask_rgb.shape[0] != h:
+        pad = h - mask_rgb.shape[0]
+        mask_rgb = np.pad(mask_rgb, ((0, pad), (0, 0), (0, 0)), mode="constant")
+
+    return np.hstack([overlay, mask_rgb]), binary_mask

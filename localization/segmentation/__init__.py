@@ -19,6 +19,8 @@ __all__ = [
     "segment_image",
     "segment_batch",
     "segment_image_patchwise",
+    "polygons_from_soft_mask",
+    "visualize_segmented_buildings",
 ]
 
 
@@ -37,7 +39,13 @@ def __getattr__(name: str) -> Any:
         from . import contours as _c
 
         return getattr(_c, name)
-    if name in ("segment_image", "segment_batch", "segment_image_patchwise"):
+    if name in (
+        "segment_image",
+        "segment_batch",
+        "segment_image_patchwise",
+        "polygons_from_soft_mask",
+        "visualize_segmented_buildings",
+    ):
         from . import inference as _i
 
         return getattr(_i, name)

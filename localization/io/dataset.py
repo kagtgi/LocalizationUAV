@@ -1,7 +1,7 @@
-"""UAV-VisLoc dataset helpers.
+r"""UAV-VisLoc dataset helpers.
 
 Expected on-disk layout (configurable; see ``UAV-VisLoc/`` in the repo root):
-
+    Path(r"D:\bk_study_stuff\EUREK_A_sao\implementation\uav_nonGPS\data\UAV_VisLoc_dataset\satellite_coordinates_range.csv"),
     UAV-VisLoc/
         satellite_coordinates_range.csv
         01/

@@ -15,11 +15,12 @@ EARTH_RADIUS_M = 6378137.0
 
 
 def _default_bounds_csv_candidates() -> list[Path]:
-    """Likely locations for ``satellite_coordinates_range.csv``."""
+    r"""Likely locations for ``satellite_coordinates_range.csv``."""
     repo_root = Path(__file__).resolve().parents[2]
     candidates = [
         repo_root / "UAV-VisLoc" / "satellite_coordinates_range.csv",
         repo_root / "UAV-VisLoc" / "satellite_ coordinates_range.csv",
+        Path(r"D:\bk_study_stuff\EUREK_A_sao\implementation\uav_nonGPS\data\UAV_VisLoc_dataset\satellite_coordinates_range.csv"),
     ]
     return candidates
 

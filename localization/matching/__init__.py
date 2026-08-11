@@ -39,7 +39,7 @@ def __getattr__(name: str) -> Any:
         "render_localization_result",
         "render_top_n_result",
     ):
-        from . import visualize as _v
+        from ...notebooks.LocalizationUAV.localization.matching import visualize as _v
 
         return getattr(_v, name)
     raise AttributeError(f"module 'localization.matching' has no attribute {name!r}")

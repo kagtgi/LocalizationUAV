@@ -6,12 +6,26 @@ steps are training-free.
 
 from __future__ import annotations
 
+import os
+import pathlib
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision.models.detection import MaskRCNN_ResNet50_FPN_Weights, maskrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+
+
+def _load_checkpoint(model_path: str, device):
+    if os.name == "nt":
+        original_posix_path = pathlib.PosixPath
+        pathlib.PosixPath = pathlib.WindowsPath
+        try:
+            return torch.load(model_path, map_location=device, weights_only=False)
+        finally:
+            pathlib.PosixPath = original_posix_path
+    return torch.load(model_path, map_location=device, weights_only=False)
 
 
 def _expand_image_stats(image_stats, in_channels):
@@ -95,7 +109,7 @@ def warmup_lr_scheduler(optimizer, warmup_iters: int, warmup_factor: float):
 def load_model(model_path: str, device, num_classes: int = 2, pretrained: bool = False, in_channels: int = 3):
     """Load a Mask R-CNN checkpoint and return an eval-ready model."""
     model = get_model(num_classes=num_classes, pretrained=pretrained, in_channels=in_channels)
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    checkpoint = _load_checkpoint(model_path, device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     return model
