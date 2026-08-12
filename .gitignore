@@ -40,6 +40,7 @@ ekeland_*.csv
 matching_result.png
 output/
 outputs/
+UAV_VisLoc_dataset/
 
 # UAV-VisLoc dataset (download separately; see notebooks/01_build_satellite_database.ipynb)
 UAV-VisLoc/01/**
