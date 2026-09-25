@@ -125,9 +125,19 @@ def reference_from_lines(label: np.ndarray, gsd: float, sigma_m: float = 2.0, K:
     G = _kernel(label > 0, gsd, sigma_m)
     Gk = None
     if K:
-        raw = [_kernel(label == c + 1, gsd, sigma_m) for c in range(K)]
-        Gk = np.stack([np.maximum(raw[c], 0.5 * np.maximum(raw[(c - 1) % K], raw[(c + 1) % K]))
-                       for c in range(K)]).astype(np.float16)
+        # memory-lean (20 GB container cap): fp16 kernels, each computed once
+        raw = [None] * K
+        def get(c):
+            c %= K
+            if raw[c] is None:
+                raw[c] = _kernel(label == c + 1, gsd, sigma_m).astype(np.float16)
+            return raw[c]
+        Gk = np.empty((K,) + label.shape, np.float16)
+        for c in range(K):
+            np.maximum(get(c), np.float16(0.5) * np.maximum(get(c - 1), get(c + 1)), out=Gk[c])
+            if 0 < c - 1 < K - 1:          # channel c-1 is no longer needed (c-2 done, 0/K-1 kept for wrap)
+                raw[c - 1] = None
+        del raw
     return RefMaps(G=G, M=np.zeros((1, 1), np.float32), gsd=gsd, Gk=Gk)
 
 
