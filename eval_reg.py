@@ -178,9 +178,7 @@ def stage_uavcache(args):
     for site in args.sites:
         fl, df = select_queries(args, site)
         out = cache_dir(args, "uav", site)
-        (out / "queries.txt").write_text("
-".join(df["filename"].astype(str)) + "
-")   # for paired M0 runs
+        (out / "queries.txt").write_text("\n".join(df["filename"].astype(str)) + "\n")   # for paired M0 runs
         t0 = time.time(); n = 0
         for _, row in df.iterrows():
             f = out / (Path(row["filename"]).stem + ".npz")
