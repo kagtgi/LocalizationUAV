@@ -75,8 +75,9 @@ def main():
         print(f"{name:10s} err={err:6.2f} m  dth={rr.theta_deg - 6.0:+.2f}  ds={rr.s - s:+.3f}  "
               f"margin={r.peaks[0].score - r.second_score:.4f} rel={(r.peaks[0].score - r.second_score) / r.peaks[0].score:.3f}  sigma={rr.sigma_pos_m:.3f}  K={r.extra['K']}")
     fails += res["oriented"][2] > 2.0
-    fails += (res["oriented"][0].peaks[0].score - res["oriented"][0].second_score) < \
-             (res["isotropic"][0].peaks[0].score - res["isotropic"][0].second_score)
+    rel = lambda r: (r.peaks[0].score - r.second_score) / r.peaks[0].score   # scale-free distinctiveness
+    print(f"relative margin: oriented {rel(res['oriented'][0]):.3f} vs isotropic {rel(res['isotropic'][0]):.3f}")
+    fails += rel(res["oriented"][0]) < rel(res["isotropic"][0])
     # graph verification: true pose vs a shifted (wrong) pose
     mg = LG.build_graph(LG.filter_lines(segs), cdt=False); mt = cKDTree(mg.J)
     qg = LG.build_graph(LG.filter_lines(qs), cdt=True)
