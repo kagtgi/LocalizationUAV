@@ -92,6 +92,7 @@ def main():
     ap.add_argument("--scales", type=float, nargs="+", default=[0.8, 0.9, 1.0, 1.1, 1.25])
     ap.add_argument("--alt-mode", default="json", choices=["json", "folder"])
     ap.add_argument("--rot-filter", default="")
+    ap.add_argument("--oracle-window", type=float, default=0.0, help="diagnostic: search only this radius (m) around GT")
     ap.add_argument("--out", default="results/reg/wuav_rot.csv")
     args = ap.parse_args()
     region = Path(args.region); cache = Path(args.cache); cache.mkdir(parents=True, exist_ok=True)
@@ -153,7 +154,10 @@ def main():
                 rec.update(status="no_structure", err_m=np.nan, r1=0, r1_semi=0)
                 rows.append(rec); continue
             t1 = time.time()
-            res = search(q, ref, center_uv=None, radius_m=None, cfg=cfg)
+            if args.oracle_window > 0:
+                res = search(q, ref, center_uv=(gu, gv), radius_m=args.oracle_window, cfg=cfg)
+            else:
+                res = search(q, ref, center_uv=None, radius_m=None, cfg=cfg)
             pk = res.peaks[0]
             rr = refine(q, ref, pk, cfg)
             t_opt = time.time() - t1
