@@ -122,15 +122,19 @@ def stage_satcache(args):
             f = g["gsd"] / SEG_GSD
             if abs(f - 1) > 0.05:
                 img = img.resize((int(img.width * f), int(img.height * f)), Image.BILINEAR)
-            prob = soft_mask(img, model, device, batch=args.batch)
-            cv2.imwrite(str(probf), (prob * 255).astype(np.uint8))
-            json.dump({"seg_gsd": g["gsd"] / f if abs(f - 1) > 0.05 else g["gsd"], "secs": time.time() - t0,
-                       "shape": list(prob.shape)}, open(out / "prob_meta.json", "w"))
-            print(f"[sat {site}] segmented {prob.shape} in {time.time()-t0:.0f}s", flush=True)
+            from localization.registration.seg import soft_mask as sm
+            prob8 = sm(img, model, device, batch=args.batch, as_uint8=True)   # memory-lean (20 GB cap)
             del img
+            cv2.imwrite(str(probf), prob8)
+            json.dump({"seg_gsd": g["gsd"] / f if abs(f - 1) > 0.05 else g["gsd"], "secs": time.time() - t0,
+                       "shape": list(prob8.shape)}, open(out / "prob_meta.json", "w"))
+            print(f"[sat {site}] segmented {prob8.shape} in {time.time()-t0:.0f}s", flush=True)
+            del prob8
+            torch.cuda.empty_cache()
         meta = json.load(open(out / "prob_meta.json"))
-        prob = cv2.imread(str(probf), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
-        pw = resample(prob, meta["seg_gsd"], args.gsd)
+        prob8 = cv2.imread(str(probf), cv2.IMREAD_GRAYSCALE)
+        pw = resample(prob8, meta["seg_gsd"], args.gsd).astype(np.float32) / 255.0   # resample on uint8
+        del prob8
         ref = reference_maps(pw, args.gsd, sigma_m=args.sigma_m)
         np.savez_compressed(out / f"work_{args.gsd:.2f}.npz", G=ref.G.astype(np.float16), M=ref.M.astype(np.int8),
                             prob=(pw * 255).astype(np.uint8))
@@ -446,7 +450,7 @@ def main():
     ap.add_argument("--gsd", type=float, default=0.6)
     ap.add_argument("--sigma-m", type=float, default=2.0)
     ap.add_argument("--batch", type=int, default=12)
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--k0", type=float, default=3.3e-4)
     ap.add_argument("--k", type=float, default=None)
     ap.add_argument("--radius", type=float, default=1000.0, help="prior window radius (m); <=0 = global")
