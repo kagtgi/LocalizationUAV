@@ -73,7 +73,7 @@ def main():
         err = math.hypot(rr.u * gm - u_m, rr.v * gm - v_m)
         res[name] = (r, rr, err)
         print(f"{name:10s} err={err:6.2f} m  dth={rr.theta_deg - 6.0:+.2f}  ds={rr.s - s:+.3f}  "
-              f"ratio={r.peaks[0].score - r.second_score:.4f}  sigma={rr.sigma_pos_m:.3f}  K={r.extra['K']}")
+              f"margin={r.peaks[0].score - r.second_score:.4f} rel={(r.peaks[0].score - r.second_score) / r.peaks[0].score:.3f}  sigma={rr.sigma_pos_m:.3f}  K={r.extra['K']}")
     fails += res["oriented"][2] > 2.0
     fails += (res["oriented"][0].peaks[0].score - res["oriented"][0].second_score) < \
              (res["isotropic"][0].peaks[0].score - res["isotropic"][0].second_score)
