@@ -6,13 +6,15 @@ cd /workspace/KhangTa/LocalizationUAV
 PY=../venv/bin/python
 D=../data
 
-# 1) wait for the download, then extract once
+# 1) wait for the download (and any unzip already in flight), then extract once
 while pgrep -f "[w]get.*uavvisloc.zip" > /dev/null; do sleep 30; done
+while pgrep -f "[u]nzip -q -o ../data/uavvisloc.zip" > /dev/null; do sleep 20; done
+if [ ! -f $D/.visloc_extracted ] && [ -d $D/visloc_raw/UAV_VisLoc_dataset/11 ]; then touch $D/.visloc_extracted; fi
 if [ ! -f $D/.visloc_extracted ]; then
   mkdir -p $D/visloc_raw && unzip -q -o $D/uavvisloc.zip -d $D/visloc_raw && touch $D/.visloc_extracted
 fi
 # locate the folder that contains 01/ and the bounds csv
-ROOT=$(dirname "$(find $D/visloc_raw -maxdepth 4 -type d -name 01 | head -1)")
+ROOT=$(dirname "$(find $D/visloc_raw -maxdepth 4 -type d -name 01 -not -path "*__MACOSX*" | head -1)")
 echo "UAV-VisLoc root: $ROOT"; ls "$ROOT"
 ARGS="--root $ROOT --cache cache/visloc --gsd 0.6"
 
