@@ -215,8 +215,9 @@ class Verification:
     n_matched: int
     match_ratio: float
     topo_consistency: float      # fraction of query structural edges (between matched junctions) present in the map graph
-    score: float                 # match_ratio * (0.5 + 0.5 * topo_consistency)
+    score: float                 # match_ratio * (0.5 + 0.5 * topo) * (0.5 + 0.5 * ekeland)
     pairs: np.ndarray            # (m,2) indices (query, map)
+    ekeland: float = 0.0         # mean free-cone (Ekeland) agreement of matched junctions
 
 
 def _rot_dirs(dirs, th):
@@ -232,8 +233,17 @@ def _dir_match(a, b, tol):
 
 
 def verify(qg: LineGraph, mg: LineGraph, mtree: Optional[cKDTree], theta_rad: float, s: float,
-           t_xy: np.ndarray, r=3.0, dir_tol_deg=12.0) -> Verification:
-    """Query graph (metres, query frame) vs map graph (metres, map frame) under x -> s R x + t."""
+           t_xy: np.ndarray, r=3.0, dir_tol_deg=12.0, use_ekeland: bool = True,
+           ekeland_tol_deg: float = 30.0, sigma_e_deg: float = 20.0) -> Verification:
+    """Query graph (metres, query frame) vs map graph (metres, map frame) under x -> s R x + t.
+
+    A junction pair is accepted when positions agree (r), incident directions agree
+    after rotation and -- with ``use_ekeland`` -- the Ekeland free-cone angles agree
+    within ``ekeland_tol_deg``. The free-cone angle is the conference descriptor's
+    quantity (largest obstacle-free angular sector at a vertex of the CDT), here
+    computed between the constrained (structural) edges of the line-graph CDT; it is
+    rotation- and scale-invariant. Its agreement also weights the score.
+    """
     n = len(qg.J)
     if n == 0 or mtree is None or len(mg.J) == 0:
         return Verification(n, 0, 0.0, 0.0, 0.0, np.zeros((0, 2), int))
@@ -245,6 +255,8 @@ def verify(qg: LineGraph, mg: LineGraph, mtree: Optional[cKDTree], theta_rad: fl
     pairs = []
     for i in range(n):
         if d[i] <= r and _dir_match(_rot_dirs(qg.dirs[i], theta_rad), mg.dirs[j[i]], tol):
+            if use_ekeland and abs(qg.free_cone[i] - mg.free_cone[j[i]]) > ekeland_tol_deg:
+                continue
             pairs.append((i, j[i]))
     pairs = np.array(pairs, int).reshape(-1, 2)
     qmap = dict(pairs.tolist())
@@ -256,7 +268,10 @@ def verify(qg: LineGraph, mg: LineGraph, mtree: Optional[cKDTree], theta_rad: fl
                 ok += int(qmap[b] in mg.adj.get(qmap[a], ()))
     topo = ok / tot if tot else 0.0
     mr = len(pairs) / n
-    return Verification(n, len(pairs), mr, topo, mr * (0.5 + 0.5 * topo), pairs)
+    ek = float(np.mean(np.exp(-np.abs(qg.free_cone[pairs[:, 0]] - mg.free_cone[pairs[:, 1]]) / sigma_e_deg))) \
+        if len(pairs) else 0.0
+    sc = mr * (0.5 + 0.5 * topo) * ((0.5 + 0.5 * ek) if use_ekeland else 1.0)
+    return Verification(n, len(pairs), mr, topo, sc, pairs, ek)
 
 
 def ransac_sim2(A: np.ndarray, B: np.ndarray, iters=500, thr=2.0, seed=0):

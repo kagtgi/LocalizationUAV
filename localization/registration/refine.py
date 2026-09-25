@@ -40,13 +40,17 @@ def _crop(ref: RefMaps, u: float, v: float, half: int, blur_mask_px: float):
     Hs, Ws = ref.G.shape
     u0, v0 = int(u) - half, int(v) - half
     G = np.zeros((2 * half, 2 * half), np.float32); M = np.zeros_like(G)
+    Gk = np.zeros((ref.Gk.shape[0], 2 * half, 2 * half), np.float32) if ref.Gk is not None else None
     a0, a1 = max(v0, 0), min(v0 + 2 * half, Hs); b0, b1 = max(u0, 0), min(u0 + 2 * half, Ws)
     if a1 > a0 and b1 > b0:
         G[a0 - v0 : a1 - v0, b0 - u0 : b1 - u0] = ref.G[a0:a1, b0:b1]
-        M[a0 - v0 : a1 - v0, b0 - u0 : b1 - u0] = ref.M[a0:a1, b0:b1]
+        if ref.M.shape == ref.G.shape:
+            M[a0 - v0 : a1 - v0, b0 - u0 : b1 - u0] = ref.M[a0:a1, b0:b1]
+        if Gk is not None:
+            Gk[:, a0 - v0 : a1 - v0, b0 - u0 : b1 - u0] = ref.Gk[:, a0:a1, b0:b1]
     if blur_mask_px > 0:
         M = cv2.GaussianBlur(M, (0, 0), blur_mask_px)
-    return G, M, u0, v0
+    return G, M, u0, v0, Gk
 
 
 @torch.no_grad()
@@ -81,10 +85,19 @@ def refine(
     hq, wq = q.mask.shape
     ext = math.hypot(hq, wq) * q.gsd / ref.gsd * max(cfg.scales) / 2 + 40
     half = int(ext) + 2
-    G, M, u0, v0 = _crop(ref, peak.u, peak.v, half, 1.0 / ref.gsd)
+    G, M, u0, v0, Gk = _crop(ref, peak.u, peak.v, half, 1.0 / ref.gsd)
     Gt = torch.from_numpy(G).to(dev)[None, None]
     Mt = torch.from_numpy(M).to(dev)[None, None]
     Hc, Wc = G.shape
+    oriented = bool(cfg.oriented and Gk is not None and q.ori is not None)
+    if oriented:
+        K = Gk.shape[0]
+        Gkt = torch.from_numpy(Gk).to(dev)                                   # (K,H,W)
+        vol = torch.cat([Gkt[-1:], Gkt, Gkt[:1]], 0)[None, None]             # cyclic pad -> (1,1,K+2,H,W)
+        Gks = Gkt[None]                                                      # (1,K,H,W)
+        ori = torch.from_numpy(q.ori).to(dev)
+    else:
+        K = 1
 
     pts = torch.from_numpy(q.pts).to(dev)
     w = torch.from_numpy(q.w).to(dev)
@@ -119,7 +132,29 @@ def refine(
             y = (sn * X[:, 0] + c * X[:, 1]) * k + (v - v0)
             return torch.stack([x, y], 1)
         J = torch.zeros((), device=dev)
-        if cfg.ncc:
+        if cfg.ncc and oriented and cfg.use_edge:
+            # stacked (orientation x footprint) domain, as in the FFT search
+            Pm = tr(mpts)
+            gx = Pm[:, 0] / (Wc - 1) * 2 - 1; gy = Pm[:, 1] / (Hc - 1) * 2 - 1
+            gF = F.grid_sample(Gks, torch.stack([gx, gy], -1)[None, None], mode="bilinear",
+                               align_corners=True, padding_mode="zeros")[0, :, 0]          # (K, M)
+            muG = gF.mean(); varG = (gF * gF).mean() - muG * muG
+            Pb = tr(pts)
+            phi = torch.remainder(ori + th, math.pi)
+            zc = phi / (math.pi / K) - 0.5 + 1.0                                        # padded channel coord
+            g3 = torch.stack([Pb[:, 0] / (Wc - 1) * 2 - 1, Pb[:, 1] / (Hc - 1) * 2 - 1, zc / (K + 1) * 2 - 1], -1)
+            vals = F.grid_sample(vol, g3[None, None, None], mode="bilinear", align_corners=True,
+                                 padding_mode="zeros")[0, 0, 0, 0]
+            A = (w * vals).sum()
+            Nst = K * Nq
+            mTk = float(wsum) / Nst
+            sdTk = math.sqrt(max(float((w * w).sum()) / Nst - mTk * mTk, 1e-12))
+            J = J + (A - wsum * muG) / (Nst * sdTk * torch.sqrt(varG.clamp_min(0) + 0.05 ** 2))
+            if cfg.use_mask:
+                mF = sample(Mt, tr(mpts))
+                muM = mF.mean(); sdM = torch.sqrt(((mF - muM) ** 2).mean() + 0.1 ** 2)
+                J = J + cfg.alpha * (mz * (mF - muM)).mean() / (sdm * sdM)
+        elif cfg.ncc:
             if cfg.use_edge:
                 gF = sample(Gt, tr(mpts))                   # G over the footprint grid
                 muG = gF.mean(); varG = (gF * gF).mean() - muG * muG

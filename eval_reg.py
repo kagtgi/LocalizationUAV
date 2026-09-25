@@ -99,15 +99,15 @@ def stage_satcache(args):
     for site in args.sites:
         out = cache_dir(args, "sat", site)
         if args.frontend == "lines":
-            f = out / f"lines_{args.gsd:.2f}.npz"
+            f = out / f"lines_or{LN.LineConfig().K}_{args.gsd:.2f}.npz"
             if f.exists():
                 print(f"[sat {site}] lines cached"); continue
             t0 = time.time()
             g = site_geo(Path(args.root), site)
             gray = np.asarray(Image.open(VisLocFlight(site, Path(args.root)).satellite_tif).convert("L"))
             nominal, _ = LN.line_maps(gray, g["gsd"], args.gsd, persistence=False)
-            ref = LN.reference_from_lines(nominal, args.gsd, sigma_m=args.sigma_m)
-            np.savez_compressed(f, G=ref.G.astype(np.float16), lines=nominal.astype(np.uint8))
+            ref = LN.reference_from_lines(nominal, args.gsd, sigma_m=args.sigma_m, K=LN.LineConfig().K)
+            np.savez_compressed(f, G=ref.G.astype(np.float16), Gk=ref.Gk, lines=nominal.astype(np.uint8))
             print(f"[sat {site}] lines {nominal.shape}, {int(nominal.sum())} line px in {time.time()-t0:.0f}s", flush=True)
             continue
         if (out / f"work_{args.gsd:.2f}.npz").exists() and (out / "sigs.npz").exists():
@@ -175,10 +175,10 @@ def query_graph(args, fl, row, k):
 def load_ref(args, site):
     out = cache_dir(args, "sat", site)
     if args.frontend == "lines":
-        z = np.load(out / f"lines_{args.gsd:.2f}.npz")
+        z = np.load(out / f"lines_or{LN.LineConfig().K}_{args.gsd:.2f}.npz")
         from localization.registration.structure import RefMaps
         G = z["G"].astype(np.float32)
-        return RefMaps(G=G, M=np.zeros_like(G), gsd=args.gsd), None, z["lines"]
+        return RefMaps(G=G, M=np.zeros((1, 1), np.float32), gsd=args.gsd, Gk=z["Gk"]), None, z["lines"]
     z = np.load(out / f"work_{args.gsd:.2f}.npz")
     from localization.registration.structure import RefMaps
     ref = RefMaps(G=z["G"].astype(np.float32), M=z["M"].astype(np.float32), gsd=args.gsd)
@@ -363,6 +363,7 @@ def stage_run(args):
                        use_mask=not args.no_mask, topk=args.topk, device="cuda")
     if args.frontend == "lines":
         cfg.use_mask = False      # line structure has no region term
+        cfg.oriented = not args.isotropic
         args.gamma = 0.0          # MFCA verification needs closed footprints
     kcal = json.load(open(Path(args.cache) / "calib.json"))["k"] if args.k is None else args.k
     for site in args.sites:
@@ -435,7 +436,7 @@ def stage_run(args):
                 A = ver.agreement(q.polygons, qsig, pk.u, pk.v, pk.theta_deg, pk.s)["A"] if args.gamma > 0 else 0.0
                 if args.verify_graph and mgraph is not None:
                     vr = LG.verify(qg, mgraph, mtree, math.radians(pk.theta_deg), pk.s,
-                                   np.array([pk.u, pk.v]) * args.gsd)
+                                   np.array([pk.u, pk.v]) * args.gsd, use_ekeland=not args.no_ekeland)
                     vers.append(vr); A = vr.score
                 Avals.append(A)
                 val = pk.score + (args.gamma_topo if args.verify_graph else args.gamma) * A
@@ -450,7 +451,7 @@ def stage_run(args):
                 vb = vers[res.peaks.index(best)]
                 rec.update(topo_n_query=vb.n_query, topo_matched=vb.n_matched, topo_match_ratio=vb.match_ratio,
                            topo_consistency=vb.topo_consistency, topo_score=vb.score,
-                           topo_score_top1=vers[0].score)
+                           topo_score_top1=vers[0].score, topo_ekeland=vb.ekeland)
                 if vb.n_matched >= 3:
                     rs = LG.ransac_sim2(qg.J[vb.pairs[:, 0]], mgraph.J[vb.pairs[:, 1]], thr=2.0)
                     if rs is not None:
@@ -524,6 +525,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--verify-graph", action="store_true", help="line-graph topological verification + RANSAC Sim(2)")
     ap.add_argument("--gamma-topo", type=float, default=0.3)
+    ap.add_argument("--isotropic", action="store_true", help="ablation: ignore line orientation (plain chamfer)")
+    ap.add_argument("--no-ekeland", action="store_true", help="ablation: no Ekeland free-cone term in verification")
     ap.add_argument("--use-ransac-pose", action="store_true")
     ap.add_argument("--min-ransac-inliers", type=int, default=4)
     ap.add_argument("--frontend", default="maskrcnn", choices=["maskrcnn", "lines"],

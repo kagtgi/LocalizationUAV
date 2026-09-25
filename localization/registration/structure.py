@@ -9,7 +9,7 @@ plus a signed mask; the reference side is a smoothed-chamfer kernel map
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Optional, Sequence
 
 import cv2
 import numpy as np
@@ -113,6 +113,7 @@ class QueryStructure:
     n_buildings: int
     polygons: list         # list of (K,2) arrays in metres (same frame as pts)
     mean_persistence: float
+    ori: Optional[np.ndarray] = None    # (N,) boundary orientation in [0, pi) (oriented frontends)
 
     @property
     def coverage(self) -> float:
@@ -179,6 +180,7 @@ class RefMaps:
     G: np.ndarray      # smoothed chamfer kernel exp(-D^2 / 2 sigma^2), float32
     M: np.ndarray      # signed mask 2m-1, float32
     gsd: float
+    Gk: Optional[np.ndarray] = None     # (K,H,W) orientation-channel kernel maps (oriented chamfer)
 
 
 def reference_maps(prob: np.ndarray, gsd: float, sigma_m: float = 2.0, min_area_m2: float = 20.0) -> RefMaps:
