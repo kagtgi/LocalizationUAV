@@ -49,6 +49,23 @@ def _crop(ref: RefMaps, u: float, v: float, half: int, blur_mask_px: float):
     return G, M, u0, v0
 
 
+@torch.no_grad()
+def _fd_hessian(f, p, h):
+    n = p.numel()
+    H = np.zeros((n, n))
+    E = torch.eye(n, device=p.device)
+    f0 = float(f(p))
+    for i in range(n):
+        for j in range(i, n):
+            if i == j:
+                H[i, i] = (float(f(p + E[i] * h[i])) - 2 * f0 + float(f(p - E[i] * h[i]))) / float(h[i] ** 2)
+            else:
+                a = float(f(p + E[i] * h[i] + E[j] * h[j])); b = float(f(p + E[i] * h[i] - E[j] * h[j]))
+                c = float(f(p - E[i] * h[i] + E[j] * h[j])); d = float(f(p - E[i] * h[i] - E[j] * h[j]))
+                H[i, j] = H[j, i] = (a - b - c + d) / float(4 * h[i] * h[j])
+    return H
+
+
 def refine(
     q: QueryStructure,
     ref: RefMaps,
@@ -126,7 +143,9 @@ def refine(
     # Laplace approximation
     hess_ok = True
     try:
-        H = torch.autograd.functional.hessian(J_of, pbest).detach().cpu().double().numpy()
+        # bilinear sampling is piecewise linear, so autograd second derivatives
+        # vanish; use central finite differences on the (smooth) kernel scale.
+        H = _fd_hessian(J_of, pbest, torch.tensor([1.0, 1.0, math.radians(0.25), 0.005], device=dev))
         n_eff = float(len(q.pts))
         prec = -H * n_eff / tau
         cov = np.linalg.inv(prec + np.eye(4) * 1e-9)

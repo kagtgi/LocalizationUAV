@@ -70,8 +70,14 @@ def perturb(q, rng, sigma_px=0.0, drop=0.0, add=0.0):
             cv2.rectangle(m, (int(x), int(y)), (int(x + rng.integers(8, 30)), int(y + rng.integers(8, 20))), 1, -1)
     p = m.astype(np.float32)
     if sigma_px > 0:
-        noise = cv2.GaussianBlur(rng.normal(0, 1, p.shape).astype(np.float32), (0, 0), 3) * sigma_px
-        p = cv2.GaussianBlur(p, (0, 0), 1.0) + noise * 0.4
+        # smooth random boundary displacement of RMS ~sigma_px (query pixels)
+        h, w = p.shape
+        dx = cv2.GaussianBlur(rng.normal(0, 1, (h, w)).astype(np.float32), (0, 0), 4)
+        dy = cv2.GaussianBlur(rng.normal(0, 1, (h, w)).astype(np.float32), (0, 0), 4)
+        dx *= sigma_px / (dx.std() + 1e-6); dy *= sigma_px / (dy.std() + 1e-6)
+        xx, yy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+        p = cv2.remap(p, xx + dx, yy + dy, cv2.INTER_LINEAR)
+        p = cv2.GaussianBlur(p, (0, 0), 1.0)
     return np.clip(p, 0, 1)
 
 
@@ -99,7 +105,7 @@ def main():
     e, dth, sig0, ratio_rand = run_case("clean", ref_prob, 1200.3, 1100.7, 4.0, 1.03, rng)
     fails += not (e <= 1.5 and dth <= 1.0)
     sigs = []
-    for sp in (0.5, 1.5, 3.0):
+    for sp in (1.0, 3.0, 6.0):
         e2, _, sg, _ = run_case(f"boundary noise {sp}", ref_prob, 1150.0, 1250.0, -6.0, 0.97, rng, sigma_px=sp)
         sigs.append(sg)
         fails += not (e2 <= 5.0)
@@ -108,6 +114,7 @@ def main():
     rep = make_map(repetitive=True)
     _, _, _, ratio_rep = run_case("repetitive grid", rep, 1200.0, 1200.0, 0.0, 1.0, rng)
     fails += not (ratio_rep < ratio_rand)
+    fails += not (sigs[0] < sigs[-1])
     print("sigma trend:", ["%.3f" % x for x in sigs], "(should increase)")
     print("peak ratio random vs repetitive: %.4f vs %.4f (repetitive should be smaller)" % (ratio_rand, ratio_rep))
     print("FAILURES:", fails)
