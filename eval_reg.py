@@ -1,0 +1,384 @@
+#!/usr/bin/env python
+"""StructReg evaluation on UAV-VisLoc (resumable; one CSV row per query).
+
+Stages
+------
+satcache  segment each satellite GeoTIFF once -> building probability (uint8,
+          native GSD) + working maps (G, M at --gsd) + building polygons and
+          vertex-coupled MFCA signatures for verification.
+uavcache  select queries, rotate north-up by IMU yaw, resample to the
+          segmentation GSD with the calibrated altitude->GSD factor, segment,
+          cache probability + footprint.
+calib     estimate the altitude->GSD factor k (GSD = k * height) on the
+          CALIBRATION sites only, by a wide scale search around GT.
+run       prior-window / global structural pose optimization; logs pose,
+          error, integrity features, runtimes.
+
+Everything is keyed by site and query id, so reruns skip finished work.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+import time
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pandas as pd
+import torch
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from localization.io.bounds import load_satellite_bounds  # noqa: E402
+from localization.io.dataset import VisLocFlight, load_flight_metadata  # noqa: E402
+from localization.registration.structure import (  # noqa: E402
+    EnsembleConfig, query_structure, reference_maps, reference_polygons, resample)
+from localization.registration.fft_search import SearchConfig, search  # noqa: E402
+from localization.registration.refine import refine  # noqa: E402
+from localization.registration.verify import ShapeVerifier, signatures, polygon_areas  # noqa: E402
+
+Image.MAX_IMAGE_PIXELS = None
+SEG_GSD = 0.3            # the Mask R-CNN operates at ~0.3 m/px (satellite native)
+
+
+# ----------------------------------------------------------------------------
+# geometry helpers
+# ----------------------------------------------------------------------------
+
+
+def site_geo(root: Path, site: str):
+    fl = VisLocFlight(site, root)
+    b = load_satellite_bounds(fl.satellite_tif.name, str(fl.bounds_csv))
+    with Image.open(fl.satellite_tif) as im:
+        W, H = im.size
+    lat_c = 0.5 * (b["LT_lat"] + b["RB_lat"])
+    m_per_deg_lat = 111132.954 - 559.822 * math.cos(2 * math.radians(lat_c))
+    m_per_deg_lon = 111412.84 * math.cos(math.radians(lat_c))
+    gx = (b["RB_lon"] - b["LT_lon"]) * m_per_deg_lon / (W - 1)
+    gy = (b["LT_lat"] - b["RB_lat"]) * m_per_deg_lat / (H - 1)
+    return dict(bounds=b, W=W, H=H, gsd_x=gx, gsd_y=gy, gsd=0.5 * (gx + gy))
+
+
+def latlon_to_px_f(lat, lon, g):
+    b = g["bounds"]
+    x = (lon - b["LT_lon"]) / (b["RB_lon"] - b["LT_lon"]) * (g["W"] - 1)
+    y = (b["LT_lat"] - lat) / (b["LT_lat"] - b["RB_lat"]) * (g["H"] - 1)
+    return x, y
+
+
+def cache_dir(args, *parts):
+    p = Path(args.cache).joinpath(*parts)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def load_model(args, device):
+    from localization.segmentation.model import load_model as lm
+    return lm(args.model, device=device, num_classes=2, pretrained=False).to(device).eval()
+
+
+def soft_mask(img_rgb: Image.Image, model, device, batch=12):
+    from localization.segmentation.inference import segment_image_patchwise
+    with torch.no_grad():
+        return segment_image_patchwise(img_rgb, model, device, patch_size=500, overlap=100,
+                                       score_threshold=0.5, batch_size=batch, progress=False)
+
+
+# ----------------------------------------------------------------------------
+# satellite cache
+# ----------------------------------------------------------------------------
+
+
+def stage_satcache(args):
+    device = torch.device("cuda")
+    model = None
+    for site in args.sites:
+        out = cache_dir(args, "sat", site)
+        if (out / f"work_{args.gsd:.2f}.npz").exists() and (out / "sigs.npz").exists():
+            print(f"[sat {site}] cached"); continue
+        g = site_geo(Path(args.root), site)
+        probf = out / "prob_native.png"
+        if not probf.exists():
+            model = model or load_model(args, device)
+            t0 = time.time()
+            img = Image.open(VisLocFlight(site, Path(args.root)).satellite_tif).convert("RGB")
+            # segment at SEG_GSD (native is ~0.3 m already for UAV-VisLoc)
+            f = g["gsd"] / SEG_GSD
+            if abs(f - 1) > 0.05:
+                img = img.resize((int(img.width * f), int(img.height * f)), Image.BILINEAR)
+            prob = soft_mask(img, model, device, batch=args.batch)
+            cv2.imwrite(str(probf), (prob * 255).astype(np.uint8))
+            json.dump({"seg_gsd": g["gsd"] / f if abs(f - 1) > 0.05 else g["gsd"], "secs": time.time() - t0,
+                       "shape": list(prob.shape)}, open(out / "prob_meta.json", "w"))
+            print(f"[sat {site}] segmented {prob.shape} in {time.time()-t0:.0f}s", flush=True)
+            del img
+        meta = json.load(open(out / "prob_meta.json"))
+        prob = cv2.imread(str(probf), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+        pw = resample(prob, meta["seg_gsd"], args.gsd)
+        ref = reference_maps(pw, args.gsd, sigma_m=args.sigma_m)
+        np.savez_compressed(out / f"work_{args.gsd:.2f}.npz", G=ref.G.astype(np.float16), M=ref.M.astype(np.int8),
+                            prob=(pw * 255).astype(np.uint8))
+        polys, cents = reference_polygons(pw, args.gsd)
+        polys_m = [p * args.gsd for p in polys]
+        sig = signatures(polys_m, coupled=True, workers=args.workers)
+        sig0 = signatures(polys_m, coupled=False, workers=args.workers)
+        np.savez_compressed(out / "sigs.npz", cents=cents, sig=sig, sig_uncoupled=sig0,
+                            area=polygon_areas(polys), gsd=args.gsd)
+        print(f"[sat {site}] work maps {ref.G.shape}, {len(polys)} buildings", flush=True)
+
+
+def load_ref(args, site):
+    out = cache_dir(args, "sat", site)
+    z = np.load(out / f"work_{args.gsd:.2f}.npz")
+    from localization.registration.structure import RefMaps
+    ref = RefMaps(G=z["G"].astype(np.float32), M=z["M"].astype(np.float32), gsd=args.gsd)
+    s = np.load(out / "sigs.npz")
+    key = "sig" if args.coupled else "sig_uncoupled"
+    ver = ShapeVerifier(s["cents"], s[key], s["area"], args.gsd)
+    return ref, ver, z["prob"]
+
+
+# ----------------------------------------------------------------------------
+# queries
+# ----------------------------------------------------------------------------
+
+
+def select_queries(args, site):
+    fl = VisLocFlight(site, Path(args.root))
+    df = load_flight_metadata(fl.metadata_csv)
+    df = df[df["filename"].str.lower().str.endswith((".jpg", ".jpeg", ".png"))].reset_index(drop=True)
+    if args.n and len(df) > args.n:
+        idx = np.linspace(0, len(df) - 1, args.n).round().astype(int)
+        df = df.iloc[np.unique(idx)].reset_index(drop=True)
+    return fl, df
+
+
+def uav_prob(args, fl, row, k, model, device, yaw_noise=0.0):
+    """North-up UAV building probability at SEG_GSD, plus footprint mask."""
+    img = Image.open(fl.drone_image_path(row["filename"])).convert("RGB")
+    h = float(row["height"])
+    gsd_raw = k * h
+    f = gsd_raw / SEG_GSD
+    img = img.resize((max(1, int(img.width * f)), max(1, int(img.height * f))), Image.BILINEAR)
+    valid = Image.new("L", img.size, 255)
+    yaw = float(row["Phi1"]) + yaw_noise
+    img = img.rotate(-yaw, resample=Image.BILINEAR, expand=True)
+    valid = valid.rotate(-yaw, resample=Image.NEAREST, expand=True)
+    prob = soft_mask(img, model, device, batch=args.batch)
+    return prob, (np.asarray(valid) > 0).astype(np.uint8)
+
+
+def stage_uavcache(args):
+    device = torch.device("cuda")
+    model = load_model(args, device)
+    k = json.load(open(Path(args.cache) / "calib.json"))["k"] if args.k is None else args.k
+    for site in args.sites:
+        fl, df = select_queries(args, site)
+        out = cache_dir(args, "uav", site)
+        t0 = time.time(); n = 0
+        for _, row in df.iterrows():
+            f = out / (Path(row["filename"]).stem + ".npz")
+            if f.exists():
+                continue
+            prob, valid = uav_prob(args, fl, row, k, model, device)
+            np.savez_compressed(f, prob=(prob * 255).astype(np.uint8), valid=valid, k=k)
+            n += 1
+        print(f"[uav {site}] {n} new in {time.time()-t0:.0f}s ({len(df)} selected)", flush=True)
+
+
+def load_query(args, site, fname, persist=True):
+    z = np.load(cache_dir(args, "uav", site) / (Path(fname).stem + ".npz"))
+    prob = z["prob"].astype(np.float32) / 255.0
+    valid = z["valid"]
+    pw = resample(prob, SEG_GSD, args.gsd)
+    vw = (resample(valid.astype(np.float32), SEG_GSD, args.gsd) > 0.5).astype(np.uint8)
+    return query_structure(pw, args.gsd, valid=vw, use_persistence=persist,
+                           ens=EnsembleConfig(dp_tol_m=(0.5, 1.0, 2.0)))
+
+
+# ----------------------------------------------------------------------------
+# calibration of k (GSD = k * height) on calibration sites
+# ----------------------------------------------------------------------------
+
+
+def stage_calib(args):
+    device = torch.device("cuda")
+    model = load_model(args, device)
+    k0 = args.k0
+    ests = []
+    for site in args.calib_sites:
+        g = site_geo(Path(args.root), site)
+        ref, _, _ = load_ref(args, site)
+        fl, df = select_queries(argparse.Namespace(**{**vars(args), "n": args.calib_n}), site)
+        for _, row in df.iterrows():
+            prob, valid = uav_prob(args, fl, row, k0, model, device)
+            pw = resample(prob, SEG_GSD, args.gsd)
+            vw = (resample(valid.astype(np.float32), SEG_GSD, args.gsd) > 0.5).astype(np.uint8)
+            q = query_structure(pw, args.gsd, valid=vw, use_persistence=False)
+            if q.n_buildings < 5:
+                continue
+            gx, gy = latlon_to_px_f(float(row["lat"]), float(row["lon"]), g)
+            c = (gx * g["gsd"] / args.gsd, gy * g["gsd"] / args.gsd)
+            cfg = SearchConfig(thetas_deg=tuple(np.arange(-6, 6.1, 3.0)),
+                               scales=tuple(np.exp(np.linspace(math.log(0.5), math.log(2.0), 25))),
+                               sigma_logs=10.0, device="cuda")
+            res = search(q, ref, center_uv=c, radius_m=60.0, cfg=cfg)
+            if res.peaks:
+                pk = res.peaks[0]
+                ests.append(dict(site=site, file=row["filename"], s=pk.s, score=pk.score,
+                                 ratio=pk.score - res.second_score, nb=q.n_buildings))
+                print(site, row["filename"], f"s={pk.s:.3f} score={pk.score:.3f}", flush=True)
+    E = pd.DataFrame(ests)
+    good = E[E["ratio"] > E["ratio"].median()] if len(E) > 10 else E
+    s_med = float(np.median(good["s"]))
+    k = k0 * s_med
+    json.dump({"k": k, "k0": k0, "s_median": s_med, "n": int(len(good)), "sites": args.calib_sites},
+              open(Path(args.cache) / "calib.json", "w"), indent=1)
+    E.to_csv(Path(args.cache) / "calib_rows.csv", index=False)
+    print("calibrated k =", k, "from", len(good), "frames")
+
+
+# ----------------------------------------------------------------------------
+# run
+# ----------------------------------------------------------------------------
+
+
+def stage_run(args):
+    rng_master = np.random.default_rng(args.seed)
+    outcsv = Path(args.out)
+    outcsv.parent.mkdir(parents=True, exist_ok=True)
+    done = set()
+    if outcsv.exists():
+        prev = pd.read_csv(outcsv)
+        done = set(zip(prev["site"].astype(str).str.zfill(2), prev["file"]))
+    cfg = SearchConfig(thetas_deg=tuple(np.arange(-args.theta_range, args.theta_range + 1e-6, args.theta_step)),
+                       scales=tuple(args.scales), alpha=args.alpha, use_edge=not args.no_edge,
+                       use_mask=not args.no_mask, topk=args.topk, device="cuda")
+    for site in args.sites:
+        g = site_geo(Path(args.root), site)
+        ref, ver, _ = load_ref(args, site)
+        fl, df = select_queries(args, site)
+        rows = []
+        for qi, row in df.iterrows():
+            rng = np.random.default_rng(abs(hash((args.seed, site, row["filename"]))) % (2**32))
+            if (site, row["filename"]) in done:
+                continue
+            fq = cache_dir(args, "uav", site) / (Path(row["filename"]).stem + ".npz")
+            if not fq.exists():
+                continue
+            t0 = time.time()
+            q = load_query(args, site, row["filename"], persist=not args.no_persist)
+            t_q = time.time() - t0
+            gx, gy = latlon_to_px_f(float(row["lat"]), float(row["lon"]), g)
+            gu, gv = gx * g["gsd"] / args.gsd, gy * g["gsd"] / args.gsd
+            if args.radius > 0:
+                # prior: GT + offset uniform in a disk of radius radius*prior_frac (INS/VO drift model)
+                r = args.radius * args.prior_frac * math.sqrt(rng.uniform()); a = rng.uniform(0, 2 * math.pi)
+                cu, cv = gu + r * math.cos(a) / args.gsd, gv + r * math.sin(a) / args.gsd
+                center, rad = (cu, cv), args.radius
+            else:
+                center, rad = None, None
+                cu, cv = ref.G.shape[1] / 2, ref.G.shape[0] / 2
+            rec = dict(site=site, file=row["filename"], height=float(row["height"]), yaw=float(row["Phi1"]),
+                       n_buildings=q.n_buildings, n_pts=len(q.pts), persistence=q.mean_persistence,
+                       gt_u=gu, gt_v=gv, prior_u=cu, prior_v=cv, radius=args.radius,
+                       prior_err_m=math.hypot(cu - gu, cv - gv) * args.gsd)
+            if q.n_buildings == 0 or len(q.pts) < 20:
+                rec.update(pred_u=cu, pred_v=cv, err_m=rec["prior_err_m"], err_grid_m=rec["prior_err_m"],
+                           J1=0, peak_ratio=0, A=0, sigma_pos_m=1e4, log_sigma_pos=math.log(1e4), status="no_structure",
+                           t_search=0, t_refine=0, t_verify=0, t_query=t_q, spread=0)
+                rows.append(rec); continue
+            t1 = time.time()
+            res = search(q, ref, center_uv=center, radius_m=rad, cfg=cfg)
+            torch.cuda.synchronize(); t_s = time.time() - t1
+            # Ekeland shape verification of top-k peaks
+            t2 = time.time()
+            qsig = signatures(q.polygons, coupled=args.coupled) if args.gamma > 0 else None
+            best, bestval, Avals = None, -1e9, []
+            for pk in res.peaks:
+                A = ver.agreement(q.polygons, qsig, pk.u, pk.v, pk.theta_deg, pk.s)["A"] if args.gamma > 0 else 0.0
+                Avals.append(A)
+                val = pk.score + args.gamma * A
+                if val > bestval:
+                    best, bestval = pk, val
+            t_v = time.time() - t2
+            t3 = time.time()
+            rr = refine(q, ref, best, cfg) if not args.no_refine else None
+            torch.cuda.synchronize(); t_r = time.time() - t3
+            pu, pv = (rr.u, rr.v) if rr else (best.u, best.v)
+            cents = np.array([p.mean(0) for p in q.polygons]) if q.polygons else np.zeros((1, 2))
+            foot = math.sqrt(q.valid.sum()) * args.gsd
+            rec.update(
+                pred_u=pu, pred_v=pv, err_m=math.hypot(pu - gu, pv - gv) * args.gsd,
+                err_grid_m=math.hypot(best.u - gu, best.v - gv) * args.gsd,
+                top1_grid_err_m=math.hypot(res.peaks[0].u - gu, res.peaks[0].v - gv) * args.gsd,
+                theta=rr.theta_deg if rr else best.theta_deg, s=rr.s if rr else best.s,
+                J1=res.peaks[0].score, J2=res.second_score, peak_ratio=res.peaks[0].score - res.second_score,
+                A=Avals[res.peaks.index(best)], A_top1=Avals[0], reranked=int(best is not res.peaks[0]),
+                sigma_pos_m=rr.sigma_pos_m if rr else float("nan"),
+                log_sigma_pos=math.log(max(rr.sigma_pos_m, 1e-3)) if rr else float("nan"),
+                spread=float(np.sqrt(np.trace(np.cov(cents.T))) / max(foot, 1)) if len(cents) > 2 else 0.0,
+                peak_rank_gt=int(np.argmin([math.hypot(p.u - gu, p.v - gv) for p in res.peaks])),
+                any_peak_within_25m=int(min(math.hypot(p.u - gu, p.v - gv) for p in res.peaks) * args.gsd < 25),
+                status="ok", t_query=t_q, t_search=t_s, t_verify=t_v, t_refine=t_r,
+            )
+            rows.append(rec)
+            if len(rows) % 10 == 0:
+                _flush(rows, outcsv); rows = []
+                print(f"[{site}] {qi+1}/{len(df)}  last err {rec['err_m']:.1f} m", flush=True)
+        _flush(rows, outcsv)
+        d = pd.read_csv(outcsv); d = d[d["site"].astype(str).str.zfill(2) == site]
+        if len(d):
+            print(f"[{site}] n={len(d)} median={d.err_m.median():.1f}m  S@25={np.mean(d.err_m<25):.3f}  "
+                  f"S@50={np.mean(d.err_m<50):.3f}", flush=True)
+
+
+def _flush(rows, outcsv):
+    if not rows:
+        return
+    pd.DataFrame(rows).to_csv(outcsv, mode="a", header=not outcsv.exists(), index=False)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("stage", choices=["satcache", "uavcache", "calib", "run"])
+    ap.add_argument("--root", default="data/UAV-VisLoc")
+    ap.add_argument("--cache", default="cache")
+    ap.add_argument("--model", default="best_model.pth")
+    ap.add_argument("--sites", nargs="+", default=[f"{i:02d}" for i in range(1, 12)])
+    ap.add_argument("--calib-sites", nargs="+", default=["05"])
+    ap.add_argument("--calib-n", type=int, default=30)
+    ap.add_argument("--n", type=int, default=100)
+    ap.add_argument("--gsd", type=float, default=0.6)
+    ap.add_argument("--sigma-m", type=float, default=2.0)
+    ap.add_argument("--batch", type=int, default=12)
+    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--k0", type=float, default=3.3e-4)
+    ap.add_argument("--k", type=float, default=None)
+    ap.add_argument("--radius", type=float, default=1000.0, help="prior window radius (m); <=0 = global")
+    ap.add_argument("--prior-frac", type=float, default=0.5)
+    ap.add_argument("--theta-range", type=float, default=10.0)
+    ap.add_argument("--theta-step", type=float, default=2.5)
+    ap.add_argument("--scales", type=float, nargs="+", default=[0.9, 0.95, 1.0, 1.05, 1.1])
+    ap.add_argument("--alpha", type=float, default=0.5)
+    ap.add_argument("--gamma", type=float, default=0.2)
+    ap.add_argument("--topk", type=int, default=5)
+    ap.add_argument("--coupled", type=int, default=1)
+    ap.add_argument("--no-edge", action="store_true")
+    ap.add_argument("--no-mask", action="store_true")
+    ap.add_argument("--no-persist", action="store_true")
+    ap.add_argument("--no-refine", action="store_true")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--out", default="results/reg/run.csv")
+    args = ap.parse_args()
+    args.sites = [s.zfill(2) for s in args.sites]
+    args.calib_sites = [s.zfill(2) for s in args.calib_sites]
+    {"satcache": stage_satcache, "uavcache": stage_uavcache, "calib": stage_calib, "run": stage_run}[args.stage](args)
+
+
+if __name__ == "__main__":
+    main()
