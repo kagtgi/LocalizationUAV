@@ -147,6 +147,31 @@ def stage_satcache(args):
         print(f"[sat {site}] work maps {ref.G.shape}, {len(polys)} buildings", flush=True)
 
 
+def stage_satgraph(args):
+    """Map line graph (filtered lines, junctions, structural adjacency, CDT) per site, metres."""
+    import pickle
+    from localization.registration import linegraph as LG
+    for site in args.sites:
+        f = cache_dir(args, "sat", site) / "graph.pkl"
+        if f.exists():
+            print(f"[graph {site}] cached"); continue
+        t0 = time.time()
+        g = site_geo(Path(args.root), site)
+        gray = np.asarray(Image.open(VisLocFlight(site, Path(args.root)).satellite_tif).convert("L"))
+        segs = LG.filter_lines(LN.segments_m(gray, g["gsd"]))
+        del gray
+        mg = LG.build_graph(segs, cdt=False)      # CDT of the full map is not needed for verification
+        pickle.dump(mg, open(f, "wb"))
+        print(f"[graph {site}] {len(segs)} lines, {len(mg.J)} junctions in {time.time()-t0:.0f}s", flush=True)
+
+
+def query_graph(args, fl, row, k):
+    from localization.registration import linegraph as LG
+    img, _ = uav_canonical(args, fl, row, k)
+    gray = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2GRAY)
+    return LG.build_graph(LG.filter_lines(LN.segments_m(gray, SEG_GSD, centre=True)), cdt=True)
+
+
 def load_ref(args, site):
     out = cache_dir(args, "sat", site)
     if args.frontend == "lines":
@@ -339,9 +364,19 @@ def stage_run(args):
     if args.frontend == "lines":
         cfg.use_mask = False      # line structure has no region term
         args.gamma = 0.0          # MFCA verification needs closed footprints
+    kcal = json.load(open(Path(args.cache) / "calib.json"))["k"] if args.k is None else args.k
     for site in args.sites:
         g = site_geo(Path(args.root), site)
         ref, ver, sat_pw = load_ref(args, site)
+        mgraph = mtree = None
+        if args.verify_graph:
+            import pickle
+            from scipy.spatial import cKDTree
+            gp = cache_dir(args, "sat", site) / "graph.pkl"
+            if gp.exists():
+                mgraph = pickle.load(open(gp, "rb"))
+                # map graph is in native-GSD metres from the map origin == working-GSD metres
+                mtree = cKDTree(mgraph.J) if len(mgraph.J) else None
         fl, df = select_queries(args, site)
         rows = []
         for qi, row in df.iterrows():
@@ -392,11 +427,18 @@ def stage_run(args):
             # Ekeland shape verification of top-k peaks
             t2 = time.time()
             qsig = signatures(q.polygons, coupled=args.coupled) if args.gamma > 0 else None
-            best, bestval, Avals = None, -1e9, []
+            best, bestval, Avals, vers = None, -1e9, [], []
+            if args.verify_graph and mgraph is not None:
+                from localization.registration import linegraph as LG
+                qg = query_graph(args, fl, row, kcal)
             for pk in res.peaks:
                 A = ver.agreement(q.polygons, qsig, pk.u, pk.v, pk.theta_deg, pk.s)["A"] if args.gamma > 0 else 0.0
+                if args.verify_graph and mgraph is not None:
+                    vr = LG.verify(qg, mgraph, mtree, math.radians(pk.theta_deg), pk.s,
+                                   np.array([pk.u, pk.v]) * args.gsd)
+                    vers.append(vr); A = vr.score
                 Avals.append(A)
-                val = pk.score + args.gamma * A
+                val = pk.score + (args.gamma_topo if args.verify_graph else args.gamma) * A
                 if val > bestval:
                     best, bestval = pk, val
             t_v = time.time() - t2
@@ -404,6 +446,19 @@ def stage_run(args):
             rr = refine(q, ref, best, cfg) if not args.no_refine else None
             torch.cuda.synchronize(); t_r = time.time() - t3
             pu, pv = (rr.u, rr.v) if rr else (best.u, best.v)
+            if args.verify_graph and mgraph is not None and vers:
+                vb = vers[res.peaks.index(best)]
+                rec.update(topo_n_query=vb.n_query, topo_matched=vb.n_matched, topo_match_ratio=vb.match_ratio,
+                           topo_consistency=vb.topo_consistency, topo_score=vb.score,
+                           topo_score_top1=vers[0].score)
+                if vb.n_matched >= 3:
+                    rs = LG.ransac_sim2(qg.J[vb.pairs[:, 0]], mgraph.J[vb.pairs[:, 1]], thr=2.0)
+                    if rs is not None:
+                        ru, rv = rs["t"] / args.gsd
+                        rec.update(err_ransac_m=math.hypot(ru - gu, rv - gv) * args.gsd, ransac_inliers=rs["inliers"],
+                                   ransac_residual=rs["residual"])
+                        if args.use_ransac_pose and rs["inliers"] >= args.min_ransac_inliers:
+                            pu, pv = ru, rv
             cents = np.array([p.mean(0) for p in q.polygons]) if q.polygons else np.zeros((1, 2))
             foot = math.sqrt(q.valid.sum()) * args.gsd
             rec.update(
@@ -439,7 +494,7 @@ def _flush(rows, outcsv):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["satcache", "uavcache", "calib", "run"])
+    ap.add_argument("stage", choices=["satcache", "uavcache", "calib", "run", "satgraph"])
     ap.add_argument("--root", default="data/UAV-VisLoc")
     ap.add_argument("--cache", default="cache")
     ap.add_argument("--model", default="best_model.pth")
@@ -467,6 +522,10 @@ def main():
     ap.add_argument("--no-persist", action="store_true")
     ap.add_argument("--no-refine", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--verify-graph", action="store_true", help="line-graph topological verification + RANSAC Sim(2)")
+    ap.add_argument("--gamma-topo", type=float, default=0.3)
+    ap.add_argument("--use-ransac-pose", action="store_true")
+    ap.add_argument("--min-ransac-inliers", type=int, default=4)
     ap.add_argument("--frontend", default="maskrcnn", choices=["maskrcnn", "lines"],
                     help="lines = training-free LSD line structure (no learned component)")
     ap.add_argument("--oracle", action="store_true", help="query structure = satellite segmentation under the true footprint")
@@ -475,7 +534,8 @@ def main():
     args = ap.parse_args()
     args.sites = [s.zfill(2) for s in args.sites]
     args.calib_sites = [s.zfill(2) for s in args.calib_sites]
-    {"satcache": stage_satcache, "uavcache": stage_uavcache, "calib": stage_calib, "run": stage_run}[args.stage](args)
+    {"satcache": stage_satcache, "uavcache": stage_uavcache, "calib": stage_calib, "run": stage_run,
+     "satgraph": stage_satgraph}[args.stage](args)
 
 
 if __name__ == "__main__":

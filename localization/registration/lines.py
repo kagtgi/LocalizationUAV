@@ -61,6 +61,16 @@ def detect_segments(gray: np.ndarray, gsd: float, min_len_m: float, scale=1.0, b
     return s[L >= min_len_m]
 
 
+def segments_m(gray: np.ndarray, gsd: float, cfg: "LineConfig | None" = None, centre: bool = False) -> np.ndarray:
+    """Line segments in metres (x east, y south); origin = image centre if ``centre``."""
+    cfg = cfg or LineConfig()
+    s = detect_segments(gray, gsd, cfg.min_len_m * 0.5, tile=cfg.tile).astype(np.float64)
+    if centre:
+        h, w = gray.shape
+        s = s - np.array([(w - 1) / 2, (h - 1) / 2, (w - 1) / 2, (h - 1) / 2])
+    return s * gsd
+
+
 def rasterize(segs: np.ndarray, shape, thickness=1) -> np.ndarray:
     m = np.zeros(shape, np.uint8)
     for x1, y1, x2, y2 in segs:
