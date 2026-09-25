@@ -49,11 +49,11 @@ def soft_mask(img, model, device, batch=12):
 
 def off_nadir_deg(c2w):
     """Angle between the optical axis and the downward vertical."""
-    z = c2w[:3, 2]                       # optical axis in world
-    # AnyVisLoc local frame: x = map col, y = map row, z = the vertical axis along
-    # which the camera looks down (optical-axis z-component > 0 for real frames);
-    # rel_alt = xyz[2] is the height above ground. Off-nadir = angle to that axis.
-    return math.degrees(math.acos(min(1.0, abs(float(z[2])) / (np.linalg.norm(z) + 1e-12))))
+    # AnyVisLoc poses use the OpenGL camera convention (camera looks along -z,
+    # y up) in a local frame x = map col, y = map row, z = up (verified with
+    # scripts/avl_convention.py: only this projects the DSM into the image).
+    axis = -c2w[:3, 2]
+    return math.degrees(math.acos(max(-1.0, min(1.0, -float(axis[2]) / (np.linalg.norm(axis) + 1e-12)))))
 
 
 def rectify(img, K, dist, c2w, z_ground, gsd, max_range_m):
@@ -65,14 +65,13 @@ def rectify(img, K, dist, c2w, z_ground, gsd, max_range_m):
     C = c2w[:3, 3].astype(np.float64)
     R = c2w[:3, :3].astype(np.float64)
     h_rel = C[2] - z_ground
-    down = 1.0 if R[2, 2] >= 0 else -1.0   # vertical direction the camera looks along
     n = int(2 * max_range_m / gsd) | 1
     c = n // 2
     jj, ii = np.meshgrid(np.arange(n), np.arange(n))
     X = C[0] + (jj - c) * gsd
     Y = C[1] + (ii - c) * gsd
-    P = np.stack([X - C[0], Y - C[1], np.full_like(X, down * h_rel)], -1)   # world rays
-    Pc = P @ R                            # world->camera: R^T p  (row-vector form)
+    P = np.stack([X - C[0], Y - C[1], np.full_like(X, -h_rel)], -1)   # world rays
+    Pc = (P @ R) * np.array([1.0, -1.0, -1.0])   # world->OpenCV camera: F R^T p
     zc = Pc[..., 2]
     ok = zc > 1e-3
     u = K[0, 0] * Pc[..., 0] / np.where(ok, zc, 1) + K[0, 2]
