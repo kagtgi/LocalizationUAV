@@ -31,11 +31,16 @@ def metrics(e):
 def block(d, label):
     rows = []
     for site, g in d.groupby("site"):
-        for name, col in (("registration", "err_m"), ("random: prior centre", "prior_err_m"),
+        g = g.copy()
+        if "err_ransac_m" in g:
+            # RANSAC-on-junctions estimate where available, registration estimate otherwise
+            g["err_ransac_or_reg"] = g["err_ransac_m"].fillna(g["err_m"])
+        for name, col in (("registration", "err_m"), ("registration+RANSAC(junctions)", "err_ransac_or_reg"),
+                          ("random: prior centre", "prior_err_m"),
                           ("random: uniform in window", "rand_err_m")):
             if col not in g:
                 continue
-            m = metrics(g[col]); m.update(site=site, method=name if name != "registration" else label)
+            m = metrics(g[col]); m.update(site=site, method=(label if name == "registration" else (label + " + RANSAC" if "RANSAC" in name else name)))
             if name == "registration":
                 m["cand_recall25"] = g["any_peak_within_25m"].mean() if "any_peak_within_25m" in g else np.nan
                 m["buildings_med"] = g["uav_n_buildings"].median() if "uav_n_buildings" in g else g["n_buildings"].median()

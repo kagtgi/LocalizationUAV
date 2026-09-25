@@ -28,9 +28,13 @@ for selection).
 \paragraph{Reference points and baselines.}
 (i) \emph{Random}: the prior centre, and a uniform random point in the window,
 on the same queries. (ii) \emph{M0}: the conference descriptor-retrieval
-pipeline. (iii) \emph{Oracle structure}: the query structure replaced by the
-satellite segmentation under the true footprint, isolating
-image$\rightarrow$structure errors from matcher errors. (iv) \emph{Local
+pipeline (learned segmentation, CDT, MFCA, $k$-NN voting), restricted to the
+same prior window. (iii) \emph{Oracle structure}: the query line structure
+replaced by the map's own line structure under the true footprint, isolating
+image$\rightarrow$structure errors (UAV vs.\ satellite line extraction) from
+registration errors. (v) \emph{Ablations}: isotropic chamfer (no orientation
+channels), no graph verification, and graph verification without the Ekeland
+term. (iv) \emph{Local
 sanity}: search restricted to 50\,m around the ground truth, testing whether
 the objective peaks at the correct pose at all.
 
