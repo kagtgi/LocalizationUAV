@@ -446,7 +446,10 @@ def stage_query(args, cfg: EvalConfig) -> None:
         flight = VisLocFlight(flight_id=site, root=Path(args.data_root))
         metadata_df = load_flight_metadata(flight.metadata_csv)
         images = flight.list_drone_images()
-        if limit is not None:
+        if getattr(args, "image_list", None):
+            keep = {l.strip() for l in open(args.image_list) if l.strip()}
+            images = [p for p in images if p.name in keep]
+        elif limit is not None:
             if getattr(args, "sample_mode", "first") == "even" and len(images) > int(limit):
                 idx = np.linspace(0, len(images) - 1, int(limit)).astype(int)
                 images = [images[i] for i in idx]
@@ -521,7 +524,7 @@ def stage_query(args, cfg: EvalConfig) -> None:
                 continue
 
             t3 = time.perf_counter()
-            result = query_uav(desc, db, k=cfg.k, top_n=cfg.top_n, max_vote_distance=cfg.max_vote_distance)
+            result = query_uav(desc, db, k=cfg.k, top_n=(10**7 if getattr(cfg, "prior_radius", 0) else cfg.top_n), max_vote_distance=cfg.max_vote_distance)
             t_query = time.perf_counter() - t3
             row.update(t_query=round(t_query, 4), t_total=round(t_pre + t_seg + t_desc + t_query, 4))
             if result is None:
@@ -542,6 +545,9 @@ def stage_query(args, cfg: EvalConfig) -> None:
             )
             if gt_xy is not None and bounds is not None:
                 row["error_m"] = round(error_meters(result.pixel_xy, gt_xy, bounds, sat_w, sat_h), 2)
+            # M0 restricted to the SAME INS/VO prior window as StructReg G0 (paired priors)
+            if getattr(cfg, "prior_radius", 0) and gt_xy is not None and bounds is not None:
+                row.update(_m0_window(result, name, site, gt_xy, bounds, sat_w, sat_h, cfg))
 
             # Step 6 - RANSAC sub-patch refinement (paper Sec. 5.7): falls back
             # to the coarse patch centroid (result.pixel_xy) unchanged when
@@ -571,6 +577,27 @@ def stage_query(args, cfg: EvalConfig) -> None:
                 _save_example_figures(sp, flight, img_path, result, gt_xy, row.get("error_m"), pmeta)
 
         print(f"[query] {site}: done -> {rec_csv}")
+
+
+def _m0_window(result, name, site, gt_xy, bounds, sat_w, sat_h, cfg):
+    """Best-voted M0 bucket inside the prior window; prior drawn exactly as in eval_reg.py."""
+    import zlib, math as _m
+    from localization.io.bounds import estimate_satellite_resolution_meters
+    res = estimate_satellite_resolution_meters(bounds, sat_w, sat_h)
+    gx_m, gy_m = float(res["m_per_px_x"]), float(res["m_per_px_y"])
+    rng = np.random.default_rng(zlib.crc32(f"{cfg.prior_seed}|{site}|{name}".encode()))
+    R = float(cfg.prior_radius)
+    r = R * 0.5 * _m.sqrt(rng.uniform()); a = rng.uniform(0, 2 * _m.pi)
+    px, py = gt_xy[0] + r * _m.cos(a) / gx_m, gt_xy[1] + r * _m.sin(a) / gy_m
+    best = None
+    for c in result.top_n:
+        dx, dy = (c.pixel_xy[0] - px) * gx_m, (c.pixel_xy[1] - py) * gy_m
+        if dx * dx + dy * dy <= R * R and (best is None or c.vote_count > best.vote_count):
+            best = c
+    pred = best.pixel_xy if best is not None else (px, py)
+    err = _m.hypot((pred[0] - gt_xy[0]) * gx_m, (pred[1] - gt_xy[1]) * gy_m)
+    return {"m0win_err_m": round(err, 2), "m0win_votes": int(best.vote_count) if best else 0,
+            "prior_px_x": round(px, 1), "prior_px_y": round(py, 1), "m0win_prior_err_m": round(r, 2)}
 
 
 def _save_example_figures(sp: SitePaths, flight, img_path, result, gt_xy, error_m, pmeta) -> None:
@@ -1414,7 +1441,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit-patches", type=int, default=None, help="cap build patches per site (testing)")
     p.add_argument("--examples", type=int, default=3, help="qualitative figures per site (main variant)")
     p.add_argument("--batch-size", type=int, default=None)
+    p.add_argument("--image-list", default=None, help="text file of drone filenames to query (paired with eval_reg.py)")
+    p.add_argument("--prior-radius", type=float, default=0.0, help="also report M0 restricted to a prior window (m)")
+    p.add_argument("--prior-seed", type=int, default=0)
     p.add_argument("--skip-dmax", action="store_true", help="skip the (slow) D_max ablation recompute")
+    p.add_argument("--image-list", default=None, help="text file of drone filenames to query (paired with eval_reg.py)")
+    p.add_argument("--prior-radius", type=float, default=0.0, help="also report M0 restricted to a prior window (m)")
+    p.add_argument("--prior-seed", type=int, default=0)
     p.add_argument("--force", action="store_true", help="rebuild satellite DBs even if cached")
     p.add_argument("--smoke", action="store_true", help="synthetic plumbing test (no GPU/dataset)")
     p.add_argument("--estimate", action="store_true", help="print resource estimate and exit")
@@ -1424,6 +1457,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     cfg = EvalConfig()
+    cfg.prior_radius = float(args.prior_radius or 0)
+    cfg.prior_seed = int(args.prior_seed)
     if args.batch_size:
         cfg.batch_size = int(args.batch_size)
 
