@@ -3,75 +3,74 @@
 \label{sec:intro}
 
 Unmanned aerial vehicles (UAVs) lose their primary absolute position source
-whenever GNSS is jammed, spoofed, or occluded, and inertial or visual odometry
+whenever GNSS is jammed, spoofed or occluded, and inertial or visual odometry
 then drifts without bound~\cite{couturier2021review}. Absolute visual
-localization against a geo-referenced orthophoto removes that drift, and the
-dominant approach today is \emph{appearance} matching: learned cross-view
-retrieval~\cite{zhu2022transgeo,wu2024camp,wu2025uavgeoloc,ji2025game4loc}
-or local/dense feature matching followed by a geometric
+localization against a geo-referenced orthophoto removes that drift. The
+dominant approaches are learned: cross-view retrieval
+networks~\cite{zhu2022transgeo,wu2024camp,wu2025uavgeoloc,ji2025game4loc} and
+learned local or dense matchers followed by a geometric
 solver~\cite{lindenberger2023lightglue,edstedt2024roma,deng2026airlock,ye2026anyvisloc}.
-These methods are strong, but their evidence is a texture statistic, and
-texture is precisely what changes between a UAV frame and a map captured years
-earlier, in another season, by another sensor.
+They are strong, but they require training data that match the deployment
+domain, and their evidence is appearance, which changes between a UAV frame and
+a map captured years earlier, in another season, by another sensor.
 
-Building footprints are an attractive alternative signal: they are
-long-lived, largely independent of illumination and season, and visible from
-both platforms. The conference version of this work (M0) encoded each
-building's constrained Delaunay triangles with a 5-D descriptor of interior
-and maximal free-cone (Ekeland) angles and retrieved them from a satellite
-index by $k$-NN voting. Our own rigorous evaluation of that paradigm
-(Sec.~\ref{sec:why_m0}) is, however, sobering: although the true location is
-covered by mapped buildings in more than $90\%$ of frames, the geometrically
-correct satellite element is essentially never among the top-ranked
-candidates, and city-scale localization error stays at the kilometre level.
-The reason is information-theoretic rather than an implementation detail: a
-single triangle or building shape carries a few bits and recurs thousands of
-times across a city, so \emph{per-element} retrieval cannot be unique, no
-matter how the descriptor is refined. The discriminative information lives in
-the \emph{joint configuration} of many buildings---exactly what per-element
-retrieval discards.
+Man-made structure is an attractive alternative signal: building outlines,
+road edges and walls are long-lived and are visible to both platforms as
+straight edges. Edge representations are already known to reduce appearance
+dependence in UAV--satellite matching---CAEVL~\cite{amadei2026caevl} feeds
+Canny edge maps to a network trained on satellite imagery and retrieves the
+best reference tile. Our conference work (M0) went further towards explicit
+geometry: it segmented building footprints, triangulated them (CDT) and
+retrieved triangles by a 5-D descriptor of interior and Ekeland free-cone
+angles. A rigorous evaluation of that paradigm (Sec.~\ref{sec:why_m0}) shows
+why it fails at city scale: the correct element is essentially never retrieved,
+because a single triangle or footprint carries a few bits and recurs thousands
+of times. Two lessons follow. First, the \emph{unit of inference} must be the
+joint configuration of the observed structure, not the element. Second, the
+learned building segmenter was the weakest link: it misses roofs and invents
+buildings on roads, and is a domain-dependent learned component.
 
-This paper therefore changes the unit of inference. Instead of retrieving
-structural elements, we \textbf{register the entire observed building
-structure to the map by optimizing a single geometric objective over the
-similarity group} $\mathrm{Sim}(2)$. The objective combines a robust
-smoothed-chamfer term on building boundaries and a signed-mask overlap term,
-both normalized over the camera footprint, with heading and altitude priors.
-Because both data terms are cross-correlations for a fixed rotation and scale,
-the optimum over \emph{all} translations of a search window is found exactly
-by FFT; a continuous refinement removes grid quantization; and the curvature of
-the objective at the optimum yields a Laplace covariance. Upstream
-segmentation uncertainty is propagated into the objective through a
-\emph{structural ensemble} whose agreement defines per-point persistence
-weights, and the MFCA/Ekeland descriptor of the conference paper survives in
-a new role---as a building-shape verifier that disambiguates correlation peaks
-on regular layouts. Finally, the structural evidence (peak distinctiveness,
-Laplace uncertainty, number and spread of buildings, persistence, shape
-agreement) is turned into a calibrated \emph{integrity} score that decides
-when to abstain.
+This paper therefore proposes a \textbf{training-free, edge-constrained
+structural registration}. Both images are reduced to the same explicit
+primitive---oriented straight line structure extracted with an a-contrario line
+detector---and the whole query structure is registered to the map by optimizing
+a single objective over the similarity group $\mathrm{Sim}(2)$: a masked,
+orientation-stacked normalized cross-correlation between the query lines and
+oriented smoothed-chamfer kernels of the map. Every term of this objective is a
+cross-correlation, so for each rotation and scale the optimum over \emph{all}
+translations of the search window is found exactly by FFT, and a rotation acts
+on the query only by moving samples and relabelling orientation channels.
+Extraction uncertainty is propagated by a structural ensemble whose agreement
+weights each line sample. The top hypotheses are then verified on a sparse line
+graph---junctions of the line structure, its constrained Delaunay
+triangulation (the natural input of CDT is exactly points plus prescribed
+segments), and the Ekeland free-cone angle at each junction---which carries the
+conference descriptor forward in the role where it is informative:
+disambiguating a small set of pose hypotheses rather than retrieving from
+$10^5$--$10^6$ candidates. A continuous refinement, a Laplace covariance and an
+integrity score built only from observable geometric evidence complete the
+estimate.
 
 \paragraph{Contributions.}
 \begin{enumerate}
-\item A formulation of raster-derived building-structure localization as
-  exact global optimization over $\mathrm{Sim}(2)$ with footprint-normalized
-  correlation (Proposition~\ref{prop:fft}), requiring no external vector map
-  and no scene-specific training in the geometric stage.
-\item Stage-wise propagation of segmentation uncertainty through a structural
-  ensemble into persistence-weighted evidence, and a Laplace covariance of
-  the resulting pose.
-\item A vertex-coupled MFCA building signature used for shape verification of
-  pose hypotheses.
-\item A structural integrity model built only from observable geometric
-  evidence, enabling calibrated abstention.
-\item An evaluation on three real benchmarks with complementary roles---
-  UAV-VisLoc~\cite{xu2024uavvisloc} (continuous-map localization),
-  World-UAV~\cite{wu2025uavgeoloc} (rotation/scale stress) and
-  AnyVisLoc~\cite{ye2026anyvisloc} (low-altitude multi-view)---with
-  parameters frozen from UAV-VisLoc, an oracle ladder that separates
-  image$\rightarrow$structure errors from structure$\rightarrow$location
-  errors, and an explicit validity envelope.
+\item A training-free formulation of UAV localization as exact global
+  optimization over $\mathrm{Sim}(2)$ of a masked, orientation-stacked NCC
+  between oriented line structure and oriented chamfer kernels
+  (Proposition~\ref{prop:fft}); no learned component, no external vector map.
+\item Propagation of line-extraction uncertainty through a structural ensemble
+  into persistence-weighted evidence, and a Laplace covariance of the pose.
+\item Line-graph verification of pose hypotheses with junction
+  correspondence, topological consistency on the constrained Delaunay
+  triangulation of the line graph, and the Ekeland free-cone angle.
+\item A structural integrity model from observable geometric evidence for
+  calibrated abstention.
+\item An evaluation on UAV-VisLoc~\cite{xu2024uavvisloc},
+  World-UAV~\cite{wu2025uavgeoloc} and AnyVisLoc~\cite{ye2026anyvisloc} with
+  parameters frozen from UAV-VisLoc, an oracle-structure ladder separating
+  extraction errors from registration errors, and the validity envelope of
+  planar edge structure.
 \end{enumerate}
 
-We deliberately avoid claims of universal appearance or viewpoint invariance:
-the matcher is appearance-independent \emph{conditional on} structure recovery,
-and we measure where that condition holds.
+We avoid claims of universal appearance or viewpoint invariance: registration
+is appearance-independent \emph{conditional on} the extraction of line
+structure, and we measure where that condition holds.
