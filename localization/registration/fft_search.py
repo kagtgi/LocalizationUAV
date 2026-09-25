@@ -135,35 +135,43 @@ def _xcorr_batch(region: torch.Tensor, tpls: List[np.ndarray], device) -> torch.
     return c[:, : H - hmax + 1, : W - wmax + 1]
 
 
-def _ncc(region, tpls, V, N, device, cache, key, eps):
-    """Batched normalized cross-correlation over each template's footprint V_b.
+def _ncc(region, tpls, V, N, device, cache, key, eps, valid=None, min_overlap=0.5):
+    """Batched *masked* normalized cross-correlation (Padfield-style).
 
-    ncc_b(t) = [sum_u T_b(u) S(t+u) - (sum T_b) mu_b(t)] / (N_b sd(T_b) sd_b(t)),
-    mu_b(t), sd_b(t): mean / std of S under the footprint V_b placed at t.
-    Everything is a cross-correlation, hence exact by FFT (Prop. 1 still holds).
+    Statistics are taken over the overlap O_b(t) = V_b(. - t) * Vs of the
+    template footprint V_b with the valid reference area Vs, so footprint parts
+    that fall outside the map (small AnyVisLoc maps, map borders) neither help
+    nor hurt:
+        ncc_b(t) = cov_O(T_b, S) / sqrt(var_O(T_b) (var_O(S) + eps^2)),
+    and positions with overlap < min_overlap * |V_b| are rejected.
+    All terms are cross-correlations, hence exact by FFT (Prop. 1 still holds).
     """
     H, W = region.shape
     hmax = max(t.shape[0] for t in tpls); wmax = max(t.shape[1] for t in tpls)
     if key not in cache:
-        cache[key] = (torch.fft.rfft2(region), torch.fft.rfft2(region * region))
-    F1, F2 = cache[key]
+        Vs = valid if valid is not None else torch.ones_like(region)
+        cache[key] = (torch.fft.rfft2(region * Vs), torch.fft.rfft2(region * region * Vs), torch.fft.rfft2(Vs))
+    F1, F2, FVs = cache[key]
     def pad(arrs):
         T = torch.zeros((len(arrs), H, W), device=device, dtype=torch.float32)
         for i, a in enumerate(arrs):
             T[i, : a.shape[0], : a.shape[1]] = torch.from_numpy(a).to(device)
         return T
     Tt = pad([t * v for t, v in zip(tpls, V)]); Vt = pad(V)
-    FT = torch.conj(torch.fft.rfft2(Tt)); FV = torch.conj(torch.fft.rfft2(Vt))
+    FT = torch.conj(torch.fft.rfft2(Tt)); FT2 = torch.conj(torch.fft.rfft2(Tt * Tt)); FV = torch.conj(torch.fft.rfft2(Vt))
     sl = (slice(None), slice(0, H - hmax + 1), slice(0, W - wmax + 1))
-    A = torch.fft.irfft2(FT * F1[None], s=(H, W))[sl]
-    B = torch.fft.irfft2(FV * F1[None], s=(H, W))[sl]
-    C = torch.fft.irfft2(FV * F2[None], s=(H, W))[sl]
-    mu = B / N
-    var = (C / N - mu * mu).clamp_min(0)
-    sT = Tt.sum((1, 2))[:, None, None]
-    mT = sT / N
-    vT = ((Tt * Tt).sum((1, 2))[:, None, None] / N - mT * mT).clamp_min(1e-12)
-    return (A - sT * mu) / (N * torch.sqrt(vT) * torch.sqrt(var + eps * eps))
+    ic = lambda X: torch.fft.irfft2(X, s=(H, W))[sl]
+    A = ic(FT * F1[None])          # sum T S over overlap
+    SS = ic(FV * F1[None])         # sum S over overlap
+    SS2 = ic(FV * F2[None])        # sum S^2 over overlap
+    No = ic(FV * FVs[None]).clamp_min(1.0)   # overlap size
+    ST = ic(FT * FVs[None])        # sum T over overlap
+    ST2 = ic(FT2 * FVs[None])      # sum T^2 over overlap
+    cov = A - ST * SS / No
+    vT = (ST2 - ST * ST / No).clamp_min(1e-9)
+    vS = (SS2 - SS * SS / No).clamp_min(0)
+    out = cov / torch.sqrt(vT * (vS + No * eps * eps))
+    return torch.where(No >= min_overlap * N, out, torch.full_like(out, -1e3))
 
 
 def search(
