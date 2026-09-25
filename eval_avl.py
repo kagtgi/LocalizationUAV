@@ -156,7 +156,7 @@ def main():
             bucket = "near" if ond < 15 else "mild" if ond < 45 else "oblique" if ond < 70 else "extreme"
             rec = dict(scene=sc, sample_id=sid, off_nadir=ond, bucket=bucket, rel_alt=float(xyz[2]) - zg,
                        roll=float(eul[0]), pitch=float(eul[1]), yaw=float(eul[2]),
-                       n_buildings=q.n_buildings, persistence=q.mean_persistence, t_query=t_q, ref=args.ref)
+                       n_buildings=q.n_buildings, coverage=q.coverage, persistence=q.mean_persistence, t_query=t_q, ref=args.ref)
             if len(q.pts) < 20:
                 rec.update(status="no_structure", err_m=np.nan)
                 rows.append(rec); continue

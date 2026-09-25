@@ -282,7 +282,7 @@ def stage_run(args):
                 center, rad = None, None
                 cu, cv = ref.G.shape[1] / 2, ref.G.shape[0] / 2
             rec = dict(site=site, file=row["filename"], height=float(row["height"]), yaw=float(row["Phi1"]),
-                       n_buildings=q.n_buildings, n_pts=len(q.pts), persistence=q.mean_persistence,
+                       n_buildings=q.n_buildings, n_pts=len(q.pts), persistence=q.mean_persistence, coverage=q.coverage,
                        gt_u=gu, gt_v=gv, prior_u=cu, prior_v=cv, radius=args.radius,
                        prior_err_m=math.hypot(cu - gu, cv - gv) * args.gsd)
             if q.n_buildings == 0 or len(q.pts) < 20:

@@ -147,7 +147,7 @@ def main():
             t_seg = time.time() - t0
             gx, gy = ll_to_px(cf["coordinate"]["latitude"], cf["coordinate"]["longitude"], geo)
             gu, gv = gx / k_ref, gy / k_ref
-            rec = dict(qid=qid, height=hgt, rot=rot, alt=alt, frame=idx, n_buildings=q.n_buildings,
+            rec = dict(qid=qid, height=hgt, rot=rot, alt=alt, frame=idx, n_buildings=q.n_buildings, coverage=q.coverage,
                        gt_u=gu, gt_v=gv, persistence=q.mean_persistence, t_seg=t_seg)
             if len(q.pts) < 20:
                 rec.update(status="no_structure", err_m=np.nan, r1=0, r1_semi=0)

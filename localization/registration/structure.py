@@ -114,6 +114,12 @@ class QueryStructure:
     polygons: list         # list of (K,2) arrays in metres (same frame as pts)
     mean_persistence: float
 
+    @property
+    def coverage(self) -> float:
+        """Fraction of the observed footprint covered by buildings (no GT used)."""
+        v = self.valid > 0
+        return float((self.mask[v] > 0).mean()) if v.any() else 0.0
+
 
 def query_structure(
     prob: np.ndarray,
