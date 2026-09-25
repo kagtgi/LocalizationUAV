@@ -41,6 +41,7 @@ from localization.registration.structure import (  # noqa: E402
 from localization.registration.fft_search import SearchConfig, search  # noqa: E402
 from localization.registration.refine import refine  # noqa: E402
 from localization.registration.verify import ShapeVerifier, signatures, polygon_areas  # noqa: E402
+from localization.registration import lines as LN  # noqa: E402
 
 Image.MAX_IMAGE_PIXELS = None
 SEG_GSD = 0.3            # the Mask R-CNN operates at ~0.3 m/px (satellite native)
@@ -97,6 +98,18 @@ def stage_satcache(args):
     model = None
     for site in args.sites:
         out = cache_dir(args, "sat", site)
+        if args.frontend == "lines":
+            f = out / f"lines_{args.gsd:.2f}.npz"
+            if f.exists():
+                print(f"[sat {site}] lines cached"); continue
+            t0 = time.time()
+            g = site_geo(Path(args.root), site)
+            gray = np.asarray(Image.open(VisLocFlight(site, Path(args.root)).satellite_tif).convert("L"))
+            nominal, _ = LN.line_maps(gray, g["gsd"], args.gsd, persistence=False)
+            ref = LN.reference_from_lines(nominal, args.gsd, sigma_m=args.sigma_m)
+            np.savez_compressed(f, G=ref.G.astype(np.float16), lines=nominal.astype(np.uint8))
+            print(f"[sat {site}] lines {nominal.shape}, {int(nominal.sum())} line px in {time.time()-t0:.0f}s", flush=True)
+            continue
         if (out / f"work_{args.gsd:.2f}.npz").exists() and (out / "sigs.npz").exists():
             print(f"[sat {site}] cached"); continue
         g = site_geo(Path(args.root), site)
@@ -132,6 +145,11 @@ def stage_satcache(args):
 
 def load_ref(args, site):
     out = cache_dir(args, "sat", site)
+    if args.frontend == "lines":
+        z = np.load(out / f"lines_{args.gsd:.2f}.npz")
+        from localization.registration.structure import RefMaps
+        G = z["G"].astype(np.float32)
+        return RefMaps(G=G, M=np.zeros_like(G), gsd=args.gsd), None, z["lines"]
     z = np.load(out / f"work_{args.gsd:.2f}.npz")
     from localization.registration.structure import RefMaps
     ref = RefMaps(G=z["G"].astype(np.float32), M=z["M"].astype(np.float32), gsd=args.gsd)
@@ -156,6 +174,28 @@ def select_queries(args, site):
     return fl, df
 
 
+def uav_canonical(args, fl, row, k, yaw_noise=0.0):
+    """North-up UAV image resampled to SEG_GSD (GSD = k * height) + footprint mask."""
+    img = Image.open(fl.drone_image_path(row["filename"])).convert("RGB")
+    f = k * float(row["height"]) / SEG_GSD
+    img = img.resize((max(1, int(img.width * f)), max(1, int(img.height * f))), Image.BILINEAR)
+    valid = Image.new("L", img.size, 255)
+    yaw = float(row["Phi1"]) + yaw_noise
+    img = img.rotate(-yaw, resample=Image.BILINEAR, expand=True)
+    valid = valid.rotate(-yaw, resample=Image.NEAREST, expand=True)
+    return img, (np.asarray(valid) > 0).astype(np.uint8)
+
+
+def uav_lines(args, fl, row, k, persistence=True):
+    """Training-free query structure: line raster + persistence at the working GSD."""
+    img, valid = uav_canonical(args, fl, row, k)
+    gray = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2GRAY)
+    vw = (resample(valid.astype(np.float32), SEG_GSD, args.gsd) > 0.5).astype(np.uint8)
+    nominal, pers = LN.line_maps(gray, SEG_GSD, args.gsd, valid=vw, persistence=persistence)
+    vw = cv2.resize(vw, (nominal.shape[1], nominal.shape[0]), interpolation=cv2.INTER_NEAREST)
+    return nominal, pers, vw
+
+
 def uav_prob(args, fl, row, k, model, device, yaw_noise=0.0):
     """North-up UAV building probability at SEG_GSD, plus footprint mask."""
     img = Image.open(fl.drone_image_path(row["filename"])).convert("RGB")
@@ -173,7 +213,7 @@ def uav_prob(args, fl, row, k, model, device, yaw_noise=0.0):
 
 def stage_uavcache(args):
     device = torch.device("cuda")
-    model = load_model(args, device)
+    model = load_model(args, device) if args.frontend != "lines" else None
     k = json.load(open(Path(args.cache) / "calib.json"))["k"] if args.k is None else args.k
     for site in args.sites:
         fl, df = select_queries(args, site)
@@ -184,14 +224,21 @@ def stage_uavcache(args):
             f = out / (Path(row["filename"]).stem + ".npz")
             if f.exists():
                 continue
-            prob, valid = uav_prob(args, fl, row, k, model, device)
-            np.savez_compressed(f, prob=(prob * 255).astype(np.uint8), valid=valid, k=k)
+            if args.frontend == "lines":
+                nominal, pers, vw = uav_lines(args, fl, row, k)
+                np.savez_compressed(f, lines=nominal, pers=(pers * 255).astype(np.uint8), valid=vw, k=k)
+            else:
+                prob, valid = uav_prob(args, fl, row, k, model, device)
+                np.savez_compressed(f, prob=(prob * 255).astype(np.uint8), valid=valid, k=k)
             n += 1
         print(f"[uav {site}] {n} new in {time.time()-t0:.0f}s ({len(df)} selected)", flush=True)
 
 
 def load_query(args, site, fname, persist=True):
     z = np.load(cache_dir(args, "uav", site) / (Path(fname).stem + ".npz"))
+    if args.frontend == "lines":
+        return LN.query_from_lines(z["lines"], z["pers"].astype(np.float32) / 255.0, args.gsd, z["valid"],
+                                   use_persistence=persist)
     prob = z["prob"].astype(np.float32) / 255.0
     valid = z["valid"]
     pw = resample(prob, SEG_GSD, args.gsd)
@@ -207,7 +254,7 @@ def load_query(args, site, fname, persist=True):
 
 def stage_calib(args):
     device = torch.device("cuda")
-    model = load_model(args, device)
+    model = load_model(args, device) if args.frontend != "lines" else None
     k0 = args.k0
     ests = []
     for site in args.calib_sites:
@@ -215,17 +262,21 @@ def stage_calib(args):
         ref, _, _ = load_ref(args, site)
         fl, df = select_queries(argparse.Namespace(**{**vars(args), "n": args.calib_n}), site)
         for _, row in df.iterrows():
-            prob, valid = uav_prob(args, fl, row, k0, model, device)
-            pw = resample(prob, SEG_GSD, args.gsd)
-            vw = (resample(valid.astype(np.float32), SEG_GSD, args.gsd) > 0.5).astype(np.uint8)
-            q = query_structure(pw, args.gsd, valid=vw, use_persistence=False)
+            if args.frontend == "lines":
+                nominal, pers, vw = uav_lines(args, fl, row, k0, persistence=False)
+                q = LN.query_from_lines(nominal, pers, args.gsd, vw, use_persistence=False)
+            else:
+                prob, valid = uav_prob(args, fl, row, k0, model, device)
+                pw = resample(prob, SEG_GSD, args.gsd)
+                vw = (resample(valid.astype(np.float32), SEG_GSD, args.gsd) > 0.5).astype(np.uint8)
+                q = query_structure(pw, args.gsd, valid=vw, use_persistence=False)
             if q.n_buildings < 5:
                 continue
             gx, gy = latlon_to_px_f(float(row["lat"]), float(row["lon"]), g)
             c = (gx * g["gsd"] / args.gsd, gy * g["gsd"] / args.gsd)
             cfg = SearchConfig(thetas_deg=tuple(np.arange(-6, 6.1, 3.0)),
                                scales=tuple(np.exp(np.linspace(math.log(0.5), math.log(2.0), 25))),
-                               sigma_logs=10.0, device="cuda")
+                               sigma_logs=10.0, use_mask=args.frontend != "lines", device="cuda")
             res = search(q, ref, center_uv=c, radius_m=60.0, cfg=cfg)
             if res.peaks:
                 pk = res.peaks[0]
@@ -253,6 +304,14 @@ def oracle_query(q, sat_pw, gu, gv, args):
     error is due to the matcher/objective, not to UAV segmentation."""
     h, w = q.valid.shape
     u0, v0 = int(round(gu - (w - 1) / 2)), int(round(gv - (h - 1) / 2))
+    if args.frontend == "lines":
+        H, W = sat_pw.shape
+        crop = np.zeros((h, w), np.uint8)
+        a0, a1 = max(v0, 0), min(v0 + h, H); b0, b1 = max(u0, 0), min(u0 + w, W)
+        if a1 > a0 and b1 > b0:
+            crop[a0 - v0:a1 - v0, b0 - u0:b1 - u0] = sat_pw[a0:a1, b0:b1]
+        crop = crop * cv2.erode(q.valid.astype(np.uint8), np.ones((7, 7), np.uint8))
+        return LN.query_from_lines(crop, np.ones(crop.shape, np.float32), args.gsd, q.valid, use_persistence=False)
     H, W = sat_pw.shape
     crop = np.zeros((h, w), np.float32)
     a0, a1 = max(v0, 0), min(v0 + h, H); b0, b1 = max(u0, 0), min(u0 + w, W)
@@ -273,6 +332,9 @@ def stage_run(args):
     cfg = SearchConfig(thetas_deg=tuple(np.arange(-args.theta_range, args.theta_range + 1e-6, args.theta_step)),
                        scales=tuple(args.scales), alpha=args.alpha, use_edge=not args.no_edge,
                        use_mask=not args.no_mask, topk=args.topk, device="cuda")
+    if args.frontend == "lines":
+        cfg.use_mask = False      # line structure has no region term
+        args.gamma = 0.0          # MFCA verification needs closed footprints
     for site in args.sites:
         g = site_geo(Path(args.root), site)
         ref, ver, sat_pw = load_ref(args, site)
@@ -310,7 +372,7 @@ def stage_run(args):
                        n_buildings=q.n_buildings, n_pts=len(q.pts), persistence=q.mean_persistence, coverage=q.coverage,
                        gt_u=gu, gt_v=gv, prior_u=cu, prior_v=cv, radius=args.radius,
                        prior_err_m=math.hypot(cu - gu, cv - gv) * args.gsd, uav_n_buildings=q_uav_nb,
-                       mode=("oracle" if args.oracle else "uav") + (f"_local{int(args.local_radius)}" if args.local_radius > 0 else ""))
+                       mode=args.frontend + "_" + ("oracle" if args.oracle else "uav") + (f"_local{int(args.local_radius)}" if args.local_radius > 0 else ""))
             if rad:
                 rr_ = rad * math.sqrt(rng.uniform()); aa_ = rng.uniform(0, 2 * math.pi)
                 ru_, rv_ = center[0] + rr_ * math.cos(aa_) / args.gsd, center[1] + rr_ * math.sin(aa_) / args.gsd
@@ -401,6 +463,8 @@ def main():
     ap.add_argument("--no-persist", action="store_true")
     ap.add_argument("--no-refine", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--frontend", default="maskrcnn", choices=["maskrcnn", "lines"],
+                    help="lines = training-free LSD line structure (no learned component)")
     ap.add_argument("--oracle", action="store_true", help="query structure = satellite segmentation under the true footprint")
     ap.add_argument("--local-radius", type=float, default=0.0, help="sanity: search only this radius (m) around GT")
     ap.add_argument("--out", default="results/reg/run.csv")
