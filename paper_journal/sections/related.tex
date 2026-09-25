@@ -1,0 +1,65 @@
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Cross-view retrieval for UAVs.}
+Most UAV geo-localization systems cast the problem as retrieval of a
+geo-tagged satellite tile. Transformer and part-based embeddings
+(TransGeo~\cite{zhu2022transgeo}, CAMP~\cite{wu2024camp}) are strong on
+aligned drone--satellite pairs. Newer benchmarks remove the alignment
+assumption: GTA-UAV/Game4Loc~\cite{ji2025game4loc} introduces partial overlap
+and metric localization over a continuous area, and
+World-UAV/UAV-GeoLoc~\cite{wu2025uavgeoloc} a one-to-$N$ setting with large
+rotation and scale discrepancies, under which global descriptors degrade
+markedly. Retrieval returns a tile, not a position; a metric estimate
+requires a second stage. Our approach is complementary: it does not learn an
+appearance embedding, and it is equivariant to rotation and scale by
+construction because both are explicit search variables.
+
+\paragraph{Matching, registration and pose.}
+The second family matches local or dense features between the UAV frame and
+a reference crop and solves for a homography or a PnP pose.
+LightGlue~\cite{lindenberger2023lightglue} and RoMa~\cite{edstedt2024roma}
+are representative matchers; AirLock+~\cite{deng2026airlock} registers
+UAV video to satellite imagery with homographies over long real trajectories,
+and AnyVisLoc~\cite{ye2026anyvisloc} standardizes a
+retrieval$\rightarrow$matching$\rightarrow$PnP pipeline for low-altitude,
+multi-view flight with aerial and satellite 2.5D references.
+Bearing-UAV~\cite{liu2026bearinguav} jointly estimates position and heading
+from unaligned views. These pipelines rely on texture correspondences; our
+evidence is instead the building layout, and our registration is a global,
+exhaustive optimization over a pose group rather than a consensus over
+putative correspondences~\cite{fischler1981ransac}.
+
+\paragraph{Explicit structure and vector maps.}
+Building footprints have been used as a map primitive by descriptor methods
+such as BRM~\cite{choi2020brm}, by coarse-to-fine vector-map positioning with
+a particle filter (CFBVM)~\cite{ouyang2024cfbvm}, and by shape-and-relationship
+matching on clean vector e-maps~\cite{ssrm2024}. These methods either require
+an external vector layer or integrate evidence over a trajectory. The
+conference version of this work encoded individual CDT triangles with
+Ekeland free-cone angles and retrieved them from a raster-derived index; its
+failure analysis (Sec.~\ref{sec:why_m0}) motivates the present
+configuration-level formulation.
+
+\paragraph{Chamfer and correlation-based registration.}
+Our objective belongs to a long line of template-based registration:
+chamfer matching~\cite{barrow1977chamfer,borgefors1988hcma}, FFT-based
+registration over translation, rotation and scale~\cite{reddy1996fft}, and
+fast normalized cross-correlation~\cite{lewis1995ncc}, including its masked
+form for partially overlapping or irregular supports. We do not claim these
+tools as novel. The contribution is how they are assembled and characterized
+for GNSS-denied UAV localization from \emph{raster-derived} structure: the
+uncertainty of the structure extraction is propagated into the evidence,
+the pose uncertainty is quantified, a building-shape verifier resolves
+aliasing, and an integrity model decides when the structural evidence is
+insufficient---together with an explicit measurement of the regime in which
+footprint geometry is observable at all.
+
+\paragraph{Uncertainty and integrity.}
+Uncertainty in cross-view localization has mostly been modeled for training
+correspondences or as learned confidence heads. We instead derive confidence
+at inference time from observable geometric evidence---peak distinctiveness,
+the curvature of the objective (a Laplace approximation~\cite{mackay2003information}),
+the number, spread and persistence of observed buildings---and calibrate it
+on held-out sites.

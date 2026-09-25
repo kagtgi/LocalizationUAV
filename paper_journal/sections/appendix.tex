@@ -1,0 +1,72 @@
+% ─────────────────────────────────────────────────────────────────────────────
+\appendix
+\section{Proofs}
+\label{app:proofs}
+
+\paragraph{Proof of Proposition~\ref{prop:fft}.}
+Fix $(\theta,s)$ and write $\mathbf{y}_b=\tfrac{s}{g}R_\theta\mathbf{x}_b$.
+Rasterize $\mathcal{T}^w_{\theta,s}=\sum_b w_b\,\delta_{\mathbf{y}_b}$
+(bilinear splatting onto the integer grid). Then
+$\sum_b w_b G_S(\mathbf{y}_b+\mathbf{t})=\sum_{\mathbf{u}}\mathcal{T}^w_{\theta,s}(\mathbf{u})\,G_S(\mathbf{u}+\mathbf{t})
+=(\mathcal{T}^w_{\theta,s}\star G_S)(\mathbf{t})$, a cross-correlation.
+Likewise the mask term is $(\mathcal{T}^M_{\theta,s}\star\tilde M_S)(\mathbf{t})$.
+For the footprint-normalized (masked) form, the local sums
+$\sum_{\mathbf{u}}V(\mathbf{u})V_S(\mathbf{u}+\mathbf{t})$,
+$\sum V\,S$, $\sum V\,S^2$, $\sum \mathcal{T}V_S$ and $\sum \mathcal{T}^2V_S$ are
+cross-correlations of the footprint $V$, the template and its square with the
+map $S$, its square and the valid-map indicator $V_S$; the normalized score is
+a pointwise function of these six correlation maps. By the correlation
+theorem each map is obtained for all $\mathbf{t}$ with two forward and one
+inverse FFT of size $N$, i.e.\ $O(N\log N)$. Hence the maximum over the integer
+translations of the window is exact. $\square$
+
+\begin{proposition}[Grid sub-optimality in rotation and scale]
+\label{prop:grid}
+Let $r_{\max}$ be the largest distance of a query sample from the image centre
+and assume $G_S$ is $L$-Lipschitz (for the Gaussian kernel,
+$L=e^{-1/2}/\sigma$). For the edge term $E$ and any
+$(\theta,s)$, the nearest grid node $(\theta_i,s_j)$ with spacings
+$\Delta\theta,\Delta_{\log s}$ satisfies
+\[
+\bigl|E(\theta,s,\mathbf{t})-E(\theta_i,s_j,\mathbf{t})\bigr|
+\le L\,\frac{s\,r_{\max}}{g}\Bigl(\frac{\Delta\theta}{2}+\frac{\Delta_{\log s}}{2}\Bigr)
++O(\Delta^2).
+\]
+\end{proposition}
+\begin{proof}
+For a sample $\mathbf{x}$ with $\|\mathbf{x}\|\le r_{\max}$ the displacement of
+its image between the two poses is
+$\tfrac{1}{g}\|sR_\theta\mathbf{x}-s_jR_{\theta_i}\mathbf{x}\|
+\le\tfrac{s\,r_{\max}}{g}\bigl(|\theta-\theta_i|+|\log s-\log s_j|\bigr)+O(\Delta^2)$,
+and $|\theta-\theta_i|\le\Delta\theta/2$,
+$|\log s-\log s_j|\le\Delta_{\log s}/2$. $E$ is a convex combination of
+$G_S$ values (weights sum to one), so the bound on each term transfers to $E$
+through the Lipschitz constant. $\square$
+\end{proof}
+The bound makes the trade-off explicit: the angular step must shrink as the
+footprint grows ($r_{\max}$) or the kernel sharpens ($\sigma$). With our
+settings it is a small fraction of the score gap between true and runner-up
+peaks, and the continuous refinement of Sec.~\ref{sec:refine} removes the
+residual. A branch-and-bound search over $(\theta,s)$ follows directly from the
+same bound, although it was not needed in our experiments.
+
+\begin{proposition}[Laplace covariance and aliasing]
+\label{prop:laplace}
+Let $\ell(\mathbf{q})=\tfrac{N}{\tau}J(\mathbf{q})$ be a tempered
+log-likelihood with a strict local maximum at $\hat{\mathbf{q}}$. The Gaussian
+approximation of $p(\mathbf{q})\propto e^{\ell(\mathbf{q})}$ around
+$\hat{\mathbf{q}}$ has covariance
+$\hat\Sigma=(-\nabla^2\ell(\hat{\mathbf{q}}))^{-1}$.
+If a second local maximum $\mathbf{q}_2$ exists with $J(\hat{\mathbf{q}})-J(\mathbf{q}_2)=\Delta J$,
+the posterior mass ratio of the two modes is approximately
+$\exp(N\Delta J/\tau)\sqrt{\det\hat\Sigma/\det\Sigma_2}$.
+\end{proposition}
+\begin{proof}
+Second-order expansion of $\ell$ at each mode and Gaussian integration
+(standard Laplace approximation~\cite{mackay2003information}). $\square$
+\end{proof}
+Proposition~\ref{prop:laplace} explains why the two integrity features
+$\hat\Sigma_{\mathbf{p}}$ and $J_1-J_2$ are complementary: the first measures
+\emph{local} precision (curvature of the winning mode) and the second
+\emph{global} ambiguity (a competing mode elsewhere), which the curvature alone
+cannot detect.

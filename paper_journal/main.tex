@@ -1,0 +1,44 @@
+% Journal version. Draft in `article`; for ISPRS JPRS submission switch the
+% first line to \documentclass[review]{elsarticle} (TGRS: IEEEtran journal).
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx,booktabs,xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{algorithm,algpseudocode}
+\usepackage{cite}
+\usepackage{enumitem}
+\setlist{noitemsep,topsep=2pt}
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}
+\newtheorem{theorem}{Theorem}
+% numbers are filled ONLY from results CSVs via tables/*.tex and macros.tex
+\IfFileExists{tables/macros.tex}{\input{tables/macros.tex}}{}
+\newcommand{\TBD}[1]{\textcolor{red}{[#1]}}
+
+\title{\textbf{Structural Pose Optimization for GNSS-Denied UAV Localization:\\
+Uncertainty-Propagated Registration of Raster-Derived Building Structure}}
+\author{Author One \and Author Two \and Author Three\\[2pt]
+\small Institute of Mathematical and Computational Sciences (IMACS),
+Ho Chi Minh City University of Technology (HCMUT), Vietnam}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\TBD{Written last, from the frozen results of Sections~\ref{sec:exp_main}--\ref{sec:efficiency}.}
+\end{abstract}
+
+\input{sections/intro}
+\input{sections/related}
+\input{sections/method}
+\input{sections/experiments}
+\input{sections/conclusion}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\input{sections/appendix}
+\end{document}

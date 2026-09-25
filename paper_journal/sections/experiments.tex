@@ -1,0 +1,66 @@
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Experimental Setup}
+\label{sec:setup}
+
+\paragraph{Datasets and roles.}
+\emph{UAV-VisLoc}~\cite{xu2024uavvisloc} (11 flights over China, 6{,}742 nadir
+images, 11 geo-referenced satellite maps of about 0.3\,m/px, altitude and
+heading metadata) is the main benchmark for continuous-map localization and all
+mechanistic analyses. \emph{World-UAV}~\cite{wu2025uavgeoloc}, Rot split
+(one region, 3 heights $\times$ 72 headings; satellite tiles mosaicked into a
+continuous map), stresses rotation and scale with an \emph{unknown} heading.
+\emph{AnyVisLoc}~\cite{ye2026anyvisloc} (low-altitude, multi-view, aerial and
+satellite references) probes the viewpoint validity envelope under its
+known-attitude setting. Parameters are selected on UAV-VisLoc only and frozen
+for the other two datasets.
+
+\paragraph{Protocol (UAV-VisLoc).}
+For each site, 100 queries are sampled uniformly along the flight. The
+altitude-to-GSD factor $k$ (metadata lack intrinsics) is estimated once on a
+calibration site (site 05) that is excluded from the reported results. The
+main setting simulates an INS/VO prior: the prior centre is the true position
+plus an offset drawn uniformly in a disk of radius $R/2$, and the search window
+has radius $R=1$\,km. Priors are drawn with a fixed per-query seed, so every
+method sees identical priors (paired comparison). Queries are stratified by
+the number of buildings \emph{observed in the query} (no ground truth is used
+for selection).
+
+\paragraph{Reference points and baselines.}
+(i) \emph{Random}: the prior centre, and a uniform random point in the window,
+on the same queries. (ii) \emph{M0}: the conference descriptor-retrieval
+pipeline. (iii) \emph{Oracle structure}: the query structure replaced by the
+satellite segmentation under the true footprint, isolating
+image$\rightarrow$structure errors from matcher errors. (iv) \emph{Local
+sanity}: search restricted to 50\,m around the ground truth, testing whether
+the objective peaks at the correct pose at all.
+
+\paragraph{Metrics.}
+Median, mean and 95th-percentile horizontal error; Success@25/50/100\,m;
+candidate recall (a top-5 peak within 25\,m of the truth); integrity AUROC,
+ECE and AURC. Confidence intervals are 95\% cluster bootstrap over sites where
+applicable; paired differences use the same queries.
+
+\paragraph{Hardware.}
+One NVIDIA A100 40\,GB (shared; about 20\,GB available), 16 CPU cores.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Results}
+\label{sec:exp_main}
+\TBD{G0 gate first (UAV-VisLoc sites 01 and 11). Filled only from results/reg/*.csv.}
+
+\subsection{Why per-element matching fails (M0)}
+\label{sec:why_m0}
+\TBD{Condensed from the conference analysis: coverage 93\%, retrieval@20 = 0\%,
+kilometre-level median error across five sites; impostor density.}
+
+\subsection{World-UAV: rotation and scale}
+\label{sec:exp_worlduav}
+\TBD{}
+
+\subsection{AnyVisLoc: viewpoint validity envelope}
+\label{sec:exp_anyvisloc}
+\TBD{}
+
+\section{Integrity and Efficiency}
+\label{sec:efficiency}
+\TBD{}
