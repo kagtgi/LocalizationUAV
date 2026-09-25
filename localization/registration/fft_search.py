@@ -38,6 +38,7 @@ class SearchConfig:
     s0: float = 1.0
     use_edge: bool = True
     use_mask: bool = True
+    ncc: bool = True                   # footprint-normalized cross-correlation (recommended)
     topk: int = 5
     nms_m: float = 30.0
     second_peak_excl_m: float = 50.0
@@ -102,14 +103,13 @@ def _templates(q: QueryStructure, combos, gsd_ref: float, use_mask: bool):
         for dx, dy, ww in ((0, 0, (1 - fx) * (1 - fy)), (1, 0, fx * (1 - fy)), (0, 1, (1 - fx) * fy), (1, 1, fx * fy)):
             xi, yi = np.clip(x0 + dx, 0, W - 1), np.clip(y0 + dy, 0, H - 1)
             np.add.at(tw, (yi, xi), q.w * ww)
-        tm = None
-        if use_mask:
-            # affine: query pixel -> template pixel
-            a = k * q.gsd
-            A = np.array([[a * R[0, 0], a * R[0, 1], 0], [a * R[1, 0], a * R[1, 1], 0]], np.float32)
-            A[:, 2] = np.array([ox, oy]) - A[:, :2] @ np.array([cxq, cyq], np.float32)
-            tm = cv2.warpAffine(q.mask, A, (W, H), flags=cv2.INTER_LINEAR, borderValue=0.0)
-        out.append((tw, tm, (ox, oy)))
+        # affine: query pixel -> template pixel
+        a = k * q.gsd
+        A = np.array([[a * R[0, 0], a * R[0, 1], 0], [a * R[1, 0], a * R[1, 1], 0]], np.float32)
+        A[:, 2] = np.array([ox, oy]) - A[:, :2] @ np.array([cxq, cyq], np.float32)
+        tm = cv2.warpAffine(q.mask, A, (W, H), flags=cv2.INTER_LINEAR, borderValue=0.0) if use_mask else None
+        tv = cv2.warpAffine(q.valid.astype(np.float32), A, (W, H), flags=cv2.INTER_NEAREST, borderValue=0.0)
+        out.append((tw, tm, (ox, oy), tv))
     return out
 
 
@@ -133,6 +133,37 @@ def _xcorr_batch(region: torch.Tensor, tpls: List[np.ndarray], device) -> torch.
     Ft = torch.fft.rfft2(T)
     c = torch.fft.irfft2(torch.conj(Ft) * Fr[None], s=(H, W))
     return c[:, : H - hmax + 1, : W - wmax + 1]
+
+
+def _ncc(region, tpls, V, N, device, cache, key, eps):
+    """Batched normalized cross-correlation over each template's footprint V_b.
+
+    ncc_b(t) = [sum_u T_b(u) S(t+u) - (sum T_b) mu_b(t)] / (N_b sd(T_b) sd_b(t)),
+    mu_b(t), sd_b(t): mean / std of S under the footprint V_b placed at t.
+    Everything is a cross-correlation, hence exact by FFT (Prop. 1 still holds).
+    """
+    H, W = region.shape
+    hmax = max(t.shape[0] for t in tpls); wmax = max(t.shape[1] for t in tpls)
+    if key not in cache:
+        cache[key] = (torch.fft.rfft2(region), torch.fft.rfft2(region * region))
+    F1, F2 = cache[key]
+    def pad(arrs):
+        T = torch.zeros((len(arrs), H, W), device=device, dtype=torch.float32)
+        for i, a in enumerate(arrs):
+            T[i, : a.shape[0], : a.shape[1]] = torch.from_numpy(a).to(device)
+        return T
+    Tt = pad([t * v for t, v in zip(tpls, V)]); Vt = pad(V)
+    FT = torch.conj(torch.fft.rfft2(Tt)); FV = torch.conj(torch.fft.rfft2(Vt))
+    sl = (slice(None), slice(0, H - hmax + 1), slice(0, W - wmax + 1))
+    A = torch.fft.irfft2(FT * F1[None], s=(H, W))[sl]
+    B = torch.fft.irfft2(FV * F1[None], s=(H, W))[sl]
+    C = torch.fft.irfft2(FV * F2[None], s=(H, W))[sl]
+    mu = B / N
+    var = (C / N - mu * mu).clamp_min(0)
+    sT = Tt.sum((1, 2))[:, None, None]
+    mT = sT / N
+    vT = ((Tt * Tt).sum((1, 2))[:, None, None] / N - mT * mT).clamp_min(1e-12)
+    return (A - sT * mu) / (N * torch.sqrt(vT) * torch.sqrt(var + eps * eps))
 
 
 def search(
@@ -194,17 +225,29 @@ def search(
             Gt = torch.from_numpy(Gr).to(dev); Mt = torch.from_numpy(Mr).to(dev)
             nu, nv = wu1 - tu, wv1 - tv
             smax = torch.full((nv, nu), -1e9, device=dev); sarg = torch.zeros((nv, nu), dtype=torch.long, device=dev)
+            Fcache = {}
             for b0i in range(0, len(combos), cfg.batch):
                 idx = list(range(b0i, min(b0i + cfg.batch, len(combos))))
                 tot = None
-                if cfg.use_edge:
-                    ce = _xcorr_batch(Gt, [tpls[i][0] for i in idx], dev) / wsum
-                    tot = ce
-                if cfg.use_mask:
-                    msum = [float(np.abs(tpls[i][1]).sum()) + 1e-6 for i in idx]
-                    cm = _xcorr_batch(Mt, [tpls[i][1] for i in idx], dev)
-                    cm = cm / torch.tensor(msum, device=dev)[:, None, None]
-                    tot = cfg.alpha * cm if tot is None else tot + cfg.alpha * cm
+                if cfg.ncc:
+                    # footprint-normalized cross-correlation (zero-mean, unit-variance
+                    # over the camera footprint V): removes the bias of raw scores
+                    # towards dense-building / empty areas (Lewis-style NCC by FFT).
+                    V = [tpls[i][3] for i in idx]
+                    N = torch.tensor([float(v.sum()) + 1e-6 for v in V], device=dev)[:, None, None]
+                    if cfg.use_edge:
+                        tot = _ncc(Gt, [tpls[i][0] for i in idx], V, N, dev, Fcache, "G", eps=0.05)
+                    if cfg.use_mask:
+                        cm = _ncc(Mt, [tpls[i][1] for i in idx], V, N, dev, Fcache, "M", eps=0.1)
+                        tot = cfg.alpha * cm if tot is None else tot + cfg.alpha * cm
+                else:
+                    if cfg.use_edge:
+                        tot = _xcorr_batch(Gt, [tpls[i][0] for i in idx], dev) / wsum
+                    if cfg.use_mask:
+                        msum = [float(np.abs(tpls[i][1]).sum()) + 1e-6 for i in idx]
+                        cm = _xcorr_batch(Mt, [tpls[i][1] for i in idx], dev)
+                        cm = cm / torch.tensor(msum, device=dev)[:, None, None]
+                        tot = cfg.alpha * cm if tot is None else tot + cfg.alpha * cm
                 for j, i in enumerate(idx):
                     ox, oy = tpls[i][2]
                     # query centre (u,v) <-> template origin t = (u - ox, v - oy) - (ru0, rv0)

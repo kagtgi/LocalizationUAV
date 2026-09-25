@@ -90,12 +90,18 @@ def refine(
     w = torch.from_numpy(q.w).to(dev)
     wsum = w.sum() + 1e-6
     ys, xs = np.mgrid[0:hq:mask_stride, 0:wq:mask_stride]
+    inside = q.valid[ys, xs] > 0
     mv = q.mask[ys, xs]
-    keep = mv != 0
+    keep = inside if cfg.ncc else (mv != 0)
     mpts = np.stack([(xs[keep] - (wq - 1) / 2) * q.gsd, (ys[keep] - (hq - 1) / 2) * q.gsd], 1).astype(np.float32)
     mpts = torch.from_numpy(mpts).to(dev)
     mval = torch.from_numpy(mv[keep].astype(np.float32)).to(dev)
     msum = mval.abs().sum() + 1e-6
+    # NCC statistics of the edge template over the footprint (query-pixel units)
+    Nq = float((q.valid > 0).sum()) + 1e-6
+    mT = float(wsum) / Nq
+    sdT = math.sqrt(max(float((w * w).sum()) / Nq - mT * mT, 1e-12))
+    mz = mval - mval.mean(); sdm = float(mz.std()) + 1e-6
 
     def sample(img, P):
         gx = P[:, 0] / (Wc - 1) * 2 - 1
@@ -113,10 +119,22 @@ def refine(
             y = (sn * X[:, 0] + c * X[:, 1]) * k + (v - v0)
             return torch.stack([x, y], 1)
         J = torch.zeros((), device=dev)
-        if cfg.use_edge:
-            J = J + (w * sample(Gt, tr(pts))).sum() / wsum
-        if cfg.use_mask:
-            J = J + cfg.alpha * (mval * sample(Mt, tr(mpts))).sum() / msum
+        if cfg.ncc:
+            if cfg.use_edge:
+                gF = sample(Gt, tr(mpts))                   # G over the footprint grid
+                muG = gF.mean(); varG = (gF * gF).mean() - muG * muG
+                A = (w * sample(Gt, tr(pts))).sum()
+                J = J + (A - wsum * muG) / (Nq * sdT * torch.sqrt(varG.clamp_min(0) + 0.05 ** 2))
+            if cfg.use_mask:
+                mF = sample(Mt, tr(mpts))
+                muM = mF.mean(); sdM = torch.sqrt(((mF - muM) ** 2).mean() + 0.1 ** 2)
+                J = J + cfg.alpha * (mz * (mF - muM)).mean() / (sdm * sdM)
+        else:
+            if cfg.use_edge:
+                J = J + (w * sample(Gt, tr(pts))).sum() / wsum
+            if cfg.use_mask:
+                J = J + cfg.alpha * (mval * sample(Mt, tr(mpts))).sum() / msum
+
         th_d = th * 180 / math.pi
         J = J - 0.01 * ((th_d - cfg.theta0_deg) ** 2 / (2 * cfg.sigma_theta_deg ** 2)
                         + (ls - math.log(cfg.s0)) ** 2 / (2 * cfg.sigma_logs ** 2))
