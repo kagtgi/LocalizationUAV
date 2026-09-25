@@ -6,19 +6,19 @@
 \toprule
 Symbol & Meaning \\
 \midrule
-$\mathcal{S}$, $g_S$ & satellite orthophoto and its GSD (m/px) \\
+$\mathcal{S}$, $g_S$ & orthophoto and its GSD (m/px) \\
 $I$, $h$, $\psi$ & UAV image, altitude, IMU heading \\
-$g$, $g_{\mathrm{seg}}$ & working GSD of the search / GSD of segmentation \\
+$g_0$, $g$ & canonical GSD of line detection / working GSD of the search \\
 $T=(s,\theta,\mathbf t)$ & similarity pose; $\hat{\mathbf p}=T(\mathbf 0)$ is the UAV position \\
-$P_I$, $P_S$ & building probability maps (query, map) \\
-$\mathcal{E}$ & structural ensemble (thresholds $\times$ metric DP tolerances) \\
-$\mathbf x_b$, $p_b$, $w_b$ & query boundary sample, its persistence, its weight \\
-$G_S$, $\tilde M_S$ & smoothed-chamfer kernel, signed mask of the map \\
-$\tilde M_I$, $V$ & signed query mask, camera footprint \\
-$J(T)$ & structural pose objective, Eq.~\eqref{eq:objective} \\
+$K$, $\phi_b$ & number of orientation bins; orientation of query sample $b$ \\
+$\mathbf x_b$, $p_b$, $w_b$ & query line sample, its persistence, its weight \\
+$\mathcal E$ & structural ensemble (image scale $\times$ pre-smoothing) \\
+$G_k$ & oriented smoothed-chamfer kernel map of channel $k$ \\
+$V$, $\Omega_T$ & camera footprint; its overlap with the valid map under $T$ \\
+$J(T)$ & masked orientation-stacked NCC objective, Eq.~\eqref{eq:objective} \\
 $J_1, J_2$ & best score; best score $>50$\,m away (runner-up) \\
-$A(T)$ & Ekeland/MFCA building-shape agreement \\
-$\phi$ & vertex-coupled MFCA building signature \\
+$\mathbf J_j$, $e_j$ & line-graph junction and its Ekeland free-cone angle \\
+$A(T)$ & line-graph verification score (matches, topology, Ekeland) \\
 $\hat\Sigma_{\mathbf p}$ & Laplace position covariance \\
 $c$, $\tau_c$ & integrity score, abstention threshold \\
 $R$ & prior search radius \\
