@@ -50,8 +50,27 @@ One NVIDIA A100 40\,GB (shared; about 20\,GB available), 16 CPU cores.
 
 \subsection{Why per-element matching fails (M0)}
 \label{sec:why_m0}
-\TBD{Condensed from the conference analysis: coverage 93\%, retrieval@20 = 0\%,
-kilometre-level median error across five sites; impostor density.}
+The conference pipeline (M0) retrieves individual CDT triangles (5-D
+angle/Ekeland descriptors, $\ell_1$ $k$-NN) and votes for a satellite patch.
+On five terrain-diverse UAV-VisLoc sites (100 queries each) it fails
+everywhere: the fraction of queries within 500\,m never exceeds $3.1\%$ and the
+median error is $3.3$--$4.4$\,km, although the true location is covered by
+mapped buildings in $93$--$99\%$ of frames (full tables in the supplement).
+A truth-anchored diagnosis on the Changjiang-20 map
+($\approx4.8\times10^5$ building triangles) shows why: the geometrically
+correct satellite element is in the top-20 for $0\%$ of query triangles, and
+enriching the descriptor with size, a log-polar building-constellation
+context, building-level matching or per-dimension standardization shrinks the
+true-match distance by up to $16\times$ yet leaves retrieval at $0\%$. The
+descriptor is too low-entropy to be \emph{unique} among $10^5$--$10^6$
+candidates: impostors approach the query as fast as the true match does.
+Restricting M0 to a small prior window ($\approx0.2$\,km$^2$) bounds the error
+mechanically (146\,m) but provides almost no identification (2.1\% within
+30\,m vs.\ 1.4\% for a uniform guess), and integrating the per-frame votes over a
+trajectory with a particle filter does not converge, because the true position
+receives votes in only $12\%$ of frames. These results define the requirement
+that motivates StructReg: the observation must use the \emph{joint}
+configuration of the observed buildings.
 
 \subsection{World-UAV: rotation and scale}
 \label{sec:exp_worlduav}
