@@ -50,8 +50,10 @@ def soft_mask(img, model, device, batch=12):
 def off_nadir_deg(c2w):
     """Angle between the optical axis and the downward vertical."""
     z = c2w[:3, 2]                       # optical axis in world
-    # local frame: z up (rel_alt positive); down = (0,0,-1)
-    return math.degrees(math.acos(max(-1.0, min(1.0, -float(z[2]) / (np.linalg.norm(z) + 1e-12)))))
+    # AnyVisLoc local frame: x = map col, y = map row, z = the vertical axis along
+    # which the camera looks down (optical-axis z-component > 0 for real frames);
+    # rel_alt = xyz[2] is the height above ground. Off-nadir = angle to that axis.
+    return math.degrees(math.acos(min(1.0, abs(float(z[2])) / (np.linalg.norm(z) + 1e-12))))
 
 
 def rectify(img, K, dist, c2w, z_ground, gsd, max_range_m):
@@ -63,12 +65,13 @@ def rectify(img, K, dist, c2w, z_ground, gsd, max_range_m):
     C = c2w[:3, 3].astype(np.float64)
     R = c2w[:3, :3].astype(np.float64)
     h_rel = C[2] - z_ground
+    down = 1.0 if R[2, 2] >= 0 else -1.0   # vertical direction the camera looks along
     n = int(2 * max_range_m / gsd) | 1
     c = n // 2
     jj, ii = np.meshgrid(np.arange(n), np.arange(n))
     X = C[0] + (jj - c) * gsd
     Y = C[1] + (ii - c) * gsd
-    P = np.stack([X - C[0], Y - C[1], np.full_like(X, z_ground - C[2])], -1)   # world rays
+    P = np.stack([X - C[0], Y - C[1], np.full_like(X, down * h_rel)], -1)   # world rays
     Pc = P @ R                            # world->camera: R^T p  (row-vector form)
     zc = Pc[..., 2]
     ok = zc > 1e-3
@@ -95,6 +98,7 @@ def main():
     ap.add_argument("--max-range", type=float, default=150.0)
     ap.add_argument("--theta-range", type=float, default=10.0)
     ap.add_argument("--out", default="results/reg/avl.csv")
+    ap.add_argument("--debug", type=int, default=0)
     args = ap.parse_args()
     device = torch.device("cuda")
     model = load_model(args.model, device)
@@ -138,13 +142,15 @@ def main():
             c2w = z["pose_c2w"].astype(np.float64); xyz = z["xyz"]; eul = z["euler_deg"]
             ond = off_nadir_deg(c2w)
             # the rel_alt convention: ground plane at z=0 unless the DSM says otherwise
-            zg = 0.0 if abs(zg_scene) > 0.5 * abs(float(xyz[2])) else zg_scene
+            zg = 0.0   # xyz[2] is already the relative altitude above the take-off ground
             t0 = time.time()
             ortho, valid, h_rel = rectify(img, K, dist, c2w, zg, SEG_GSD, args.max_range)
             qprob = soft_mask(Image.fromarray(ortho), model, device) * valid
             qpw = resample(qprob, SEG_GSD, args.gsd)
             vw = (resample(valid.astype(np.float32), SEG_GSD, args.gsd) > 0.5).astype(np.uint8)
             q = query_structure(qpw, args.gsd, valid=vw, ens=EnsembleConfig(dp_tol_m=(0.25, 0.5, 1.0)))
+            if args.debug and len(rows) < args.debug:
+                _debug_panel(sc, sid, ortho, qprob, sd / refj["map_path"], (float(xyz[0]) - ox) / res_m, (float(xyz[1]) - oy) / res_m, res_m, args)
             t_q = time.time() - t0
             gx, gy = (float(xyz[0]) - ox) / res_m * res_m / args.gsd, (float(xyz[1]) - oy) / args.gsd
             gu, gv = (float(xyz[0]) - ox) / args.gsd, (float(xyz[1]) - oy) / args.gsd
@@ -176,6 +182,21 @@ def main():
     for t in (1, 3, 5, 10, 20):
         d[f"S@{t}"] = (d.err_m <= t).astype(float)
     print(d.groupby("bucket")[["err_m", "S@5", "S@10", "S@20"]].agg(["median", "mean", "count"]).to_string())
+
+
+def _debug_panel(sc, sid, ortho, qprob, map_path, gcol, grow, res_m, args):
+    """ortho | query prob | reference map crop centred on GT (same metric scale)."""
+    d = Path("debug"); d.mkdir(exist_ok=True)
+    m = cv2.imread(str(map_path))
+    f = res_m / SEG_GSD
+    m = cv2.resize(m, None, fx=f, fy=f)
+    n = ortho.shape[0]; c = n // 2
+    cx, cy = int(gcol * f), int(grow * f)
+    pad = cv2.copyMakeBorder(m, n, n, n, n, cv2.BORDER_CONSTANT)
+    crop = pad[cy + n - c: cy + n - c + n, cx + n - c: cx + n - c + n]
+    p = cv2.cvtColor((qprob * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    panel = np.hstack([ortho[:, :, ::-1], p, crop])
+    cv2.imwrite(str(d / f"avl_{sc}_{sid}.jpg"), cv2.resize(panel, None, fx=0.5, fy=0.5))
 
 
 if __name__ == "__main__":
