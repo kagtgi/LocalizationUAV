@@ -98,13 +98,18 @@ def main():
     ap.add_argument("--theta-range", type=float, default=10.0)
     ap.add_argument("--out", default="results/reg/avl.csv")
     ap.add_argument("--debug", type=int, default=0)
+    ap.add_argument("--s0", type=float, default=1.0, help="calibrated altitude-scale factor (frozen)")
+    ap.add_argument("--calib", action="store_true", help="estimate s0: GT-centred 20 m window, wide scales")
     args = ap.parse_args()
     device = torch.device("cuda")
     model = load_model(args.model, device)
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     done = set(pd.read_csv(out)["sample_id"]) if out.exists() else set()
     cfg = SearchConfig(thetas_deg=tuple(np.arange(-args.theta_range, args.theta_range + 1e-6, 2.5)),
-                       scales=(0.9, 0.95, 1.0, 1.05, 1.1), topk=5, device="cuda")
+                       scales=tuple(args.s0 * np.array([0.9, 0.95, 1.0, 1.05, 1.1])), s0=args.s0, topk=5, device="cuda")
+    if args.calib:
+        cfg = SearchConfig(thetas_deg=(-5.0, -2.5, 0.0, 2.5, 5.0), sigma_logs=10.0, topk=1, device="cuda",
+                           scales=tuple(np.exp(np.linspace(np.log(0.6), np.log(1.5), 19))))
     for sc in args.scenes:
         sd = Path(args.root) / f"Scene_{sc}"
         if not sd.exists():
@@ -161,7 +166,10 @@ def main():
                 rec.update(status="no_structure", err_m=np.nan)
                 rows.append(rec); continue
             t1 = time.time()
-            sr = search(q, ref, center_uv=None, radius_m=None, cfg=cfg)
+            if args.calib:
+                sr = search(q, ref, center_uv=(gu, gv), radius_m=20.0, cfg=cfg)
+            else:
+                sr = search(q, ref, center_uv=None, radius_m=None, cfg=cfg)
             if not sr.peaks:
                 rec.update(status="no_peak", err_m=np.nan); rows.append(rec); continue
             pk = sr.peaks[0]
