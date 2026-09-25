@@ -9,13 +9,14 @@ print("dsm", dsm.shape, np.nanpercentile(dsm, [1, 50, 99]))
 res = refj["dsm_resolution"][0]; o = refj["dsm_origin_local"]
 H, W = dsm.shape[:2]
 jj, ii = np.meshgrid(np.arange(0, W, 5), np.arange(0, H, 5))
-X = o[0] + jj * res; Y = o[1] + ii * res; Z = dsm[ii, jj] if dsm.ndim == 2 else dsm[ii, jj, 0]
+X = o[0] + jj * res; Y = o[1] + ii * res; Z = np.clip(dsm[ii, jj], -50, 200) if dsm.ndim == 2 else dsm[ii, jj, 0]
 P = np.stack([X.ravel(), Y.ravel(), Z.ravel()], 1); P = P[np.isfinite(P).all(1)]
 for f in sorted(sd.glob("L*_*.npz"))[:40:8]:
     z = np.load(f); K = z["K"]; c2w = z["pose_c2w"].astype(np.float64); w2c = z["pose_w2c"].astype(np.float64)
     h, w = z["image"].shape[:2]
     print(f.stem, "xyz", z["xyz"], "euler", z["euler_deg"], "det", round(np.linalg.det(c2w[:3, :3]), 3))
-    for name, M in [("w2c", w2c), ("inv(c2w)", np.linalg.inv(c2w)), ("c2w", c2w)]:
+    F = np.diag([1.0, -1.0, -1.0, 1.0])
+    for name, M in [("w2c", w2c), ("gl:F@w2c", F @ w2c), ("gl:F@inv(c2w)", F @ np.linalg.inv(c2w)), ("gl:F@c2w", F @ c2w)]:
         for zs in (1, -1):
             Q = P.copy(); Q[:, 2] *= zs
             pc = Q @ M[:3, :3].T + M[:3, 3]
