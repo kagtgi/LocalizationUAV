@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import zlib
 import math
 import os
 import sys
@@ -245,6 +246,21 @@ def stage_calib(args):
 # ----------------------------------------------------------------------------
 
 
+def oracle_query(q, sat_pw, gu, gv, args):
+    """Oracle structure (E1): the satellite's own building probability under the
+    TRUE footprint (same shape/orientation as the UAV query), so any remaining
+    error is due to the matcher/objective, not to UAV segmentation."""
+    h, w = q.valid.shape
+    u0, v0 = int(round(gu - (w - 1) / 2)), int(round(gv - (h - 1) / 2))
+    H, W = sat_pw.shape
+    crop = np.zeros((h, w), np.float32)
+    a0, a1 = max(v0, 0), min(v0 + h, H); b0, b1 = max(u0, 0), min(u0 + w, W)
+    if a1 > a0 and b1 > b0:
+        crop[a0 - v0:a1 - v0, b0 - u0:b1 - u0] = sat_pw[a0:a1, b0:b1].astype(np.float32) / 255.0
+    return query_structure(crop * (q.valid > 0), args.gsd, valid=q.valid, use_persistence=not args.no_persist,
+                           ens=EnsembleConfig(dp_tol_m=(0.5, 1.0, 2.0)))
+
+
 def stage_run(args):
     rng_master = np.random.default_rng(args.seed)
     outcsv = Path(args.out)
@@ -258,11 +274,13 @@ def stage_run(args):
                        use_mask=not args.no_mask, topk=args.topk, device="cuda")
     for site in args.sites:
         g = site_geo(Path(args.root), site)
-        ref, ver, _ = load_ref(args, site)
+        ref, ver, sat_pw = load_ref(args, site)
         fl, df = select_queries(args, site)
         rows = []
         for qi, row in df.iterrows():
-            rng = np.random.default_rng(abs(hash((args.seed, site, row["filename"]))) % (2**32))
+            # stable per-query seed (Python hash() is salted per process): every mode
+            # sees the SAME prior offset for a query, so comparisons are paired
+            rng = np.random.default_rng(zlib.crc32(f"{args.seed}|{site}|{row['filename']}".encode()))
             if (site, row["filename"]) in done:
                 continue
             fq = cache_dir(args, "uav", site) / (Path(row["filename"]).stem + ".npz")
@@ -273,7 +291,13 @@ def stage_run(args):
             t_q = time.time() - t0
             gx, gy = latlon_to_px_f(float(row["lat"]), float(row["lon"]), g)
             gu, gv = gx * g["gsd"] / args.gsd, gy * g["gsd"] / args.gsd
-            if args.radius > 0:
+            q_uav_nb = q.n_buildings
+            if args.oracle:
+                q = oracle_query(q, sat_pw, gu, gv, args)
+            if args.local_radius > 0:
+                center, rad = (gu, gv), args.local_radius
+                cu, cv = gu, gv
+            elif args.radius > 0:
                 # prior: GT + offset uniform in a disk of radius radius*prior_frac (INS/VO drift model)
                 r = args.radius * args.prior_frac * math.sqrt(rng.uniform()); a = rng.uniform(0, 2 * math.pi)
                 cu, cv = gu + r * math.cos(a) / args.gsd, gv + r * math.sin(a) / args.gsd
@@ -284,7 +308,12 @@ def stage_run(args):
             rec = dict(site=site, file=row["filename"], height=float(row["height"]), yaw=float(row["Phi1"]),
                        n_buildings=q.n_buildings, n_pts=len(q.pts), persistence=q.mean_persistence, coverage=q.coverage,
                        gt_u=gu, gt_v=gv, prior_u=cu, prior_v=cv, radius=args.radius,
-                       prior_err_m=math.hypot(cu - gu, cv - gv) * args.gsd)
+                       prior_err_m=math.hypot(cu - gu, cv - gv) * args.gsd, uav_n_buildings=q_uav_nb,
+                       mode=("oracle" if args.oracle else "uav") + (f"_local{int(args.local_radius)}" if args.local_radius > 0 else ""))
+            if rad:
+                rr_ = rad * math.sqrt(rng.uniform()); aa_ = rng.uniform(0, 2 * math.pi)
+                ru_, rv_ = center[0] + rr_ * math.cos(aa_) / args.gsd, center[1] + rr_ * math.sin(aa_) / args.gsd
+                rec["rand_err_m"] = math.hypot(ru_ - gu, rv_ - gv) * args.gsd
             if q.n_buildings == 0 or len(q.pts) < 20:
                 rec.update(pred_u=cu, pred_v=cv, err_m=rec["prior_err_m"], err_grid_m=rec["prior_err_m"],
                            J1=0, peak_ratio=0, A=0, sigma_pos_m=1e4, log_sigma_pos=math.log(1e4), status="no_structure",
@@ -371,6 +400,8 @@ def main():
     ap.add_argument("--no-persist", action="store_true")
     ap.add_argument("--no-refine", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--oracle", action="store_true", help="query structure = satellite segmentation under the true footprint")
+    ap.add_argument("--local-radius", type=float, default=0.0, help="sanity: search only this radius (m) around GT")
     ap.add_argument("--out", default="results/reg/run.csv")
     args = ap.parse_args()
     args.sites = [s.zfill(2) for s in args.sites]
