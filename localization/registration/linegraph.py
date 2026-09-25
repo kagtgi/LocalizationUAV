@@ -101,48 +101,49 @@ class Junction:
 
 
 def junctions(segs: np.ndarray, eps=2.0, min_angle_deg=30.0) -> List[Junction]:
+    """Vectorized: candidate pairs by KD-tree on midpoints, intersection tests in NumPy."""
     out: List[Junction] = []
-    if len(segs) == 0:
+    if len(segs) < 2:
         return out
-    P, Q = segs[:, :2], segs[:, 2:]
-    L = np.hypot(*(Q - P).T)
-    mids = 0.5 * (P + Q); tree = cKDTree(mids)
-    ang = np.array([_angle(x) for x in segs])
-    touched = np.zeros((len(segs), 2), bool)
-    seen = set()
-    for i in range(len(segs)):
-        # bounded radius; a long partner j finds i from its own (larger) query
-        for j in tree.query_ball_point(mids[i], L[i] / 2 + 60.0 + eps):
-            if j == i or (min(i, j), max(i, j)) in seen:
-                continue
-            seen.add((min(i, j), max(i, j)))
-            da = abs((ang[j] - ang[i] + math.pi / 2) % math.pi - math.pi / 2)
-            if da < math.radians(min_angle_deg):
-                continue
-            d1, d2 = Q[i] - P[i], Q[j] - P[j]
-            den = d1[0] * d2[1] - d1[1] * d2[0]
-            if abs(den) < 1e-9:
-                continue
-            w = P[j] - P[i]
-            t = (w[0] * d2[1] - w[1] * d2[0]) / den
-            u = (w[0] * d1[1] - w[1] * d1[0]) / den
-            ti, uj = t * L[i], u * L[j]            # metres along each segment
-            if not (-eps <= ti <= L[i] + eps and -eps <= uj <= L[j] + eps):
-                continue
-            x = P[i] + t * d1
-            end_i = min(abs(ti), abs(L[i] - ti)) <= eps
-            end_j = min(abs(uj), abs(L[j] - uj)) <= eps
-            kind = "L" if (end_i and end_j) else ("T" if (end_i or end_j) else "X")
-            dirs = []
-            for (p, q, tt, LL, k) in ((P[i], Q[i], ti, L[i], i), (P[j], Q[j], uj, L[j], j)):
-                a = math.atan2(q[1] - p[1], q[0] - p[0])
-                if tt > eps:
-                    dirs.append((a + math.pi) % (2 * math.pi))      # towards P
-                if tt < LL - eps:
-                    dirs.append(a % (2 * math.pi))                  # towards Q
-                if abs(tt) <= eps: touched[k, 0] = True
-                if abs(LL - tt) <= eps: touched[k, 1] = True
-            out.append(Junction(np.asarray(x), kind, np.sort(np.array(dirs))))
+    P, Q = segs[:, :2].astype(np.float64), segs[:, 2:].astype(np.float64)
+    D = Q - P
+    L = np.hypot(D[:, 0], D[:, 1]); L = np.maximum(L, 1e-9)
+    mids = 0.5 * (P + Q)
+    tree = cKDTree(mids)
+    # bounded radius; a long partner j finds i from its own (larger) query
+    nb = tree.query_ball_point(mids, L / 2 + 60.0 + eps)
+    I = np.repeat(np.arange(len(segs)), [len(x) for x in nb]); Jn = np.concatenate([np.asarray(x, int) for x in nb])
+    keep = I < Jn
+    I, Jn = I[keep], Jn[keep]
+    I, Jn = np.unique(np.stack([np.minimum(I, Jn), np.maximum(I, Jn)], 1), axis=0).T if len(I) else (I, Jn)
+    if len(I) == 0:
+        return out
+    ang = np.arctan2(D[:, 1], D[:, 0]) % math.pi
+    da = np.abs((ang[Jn] - ang[I] + math.pi / 2) % math.pi - math.pi / 2)
+    ok = da >= math.radians(min_angle_deg)
+    d1, d2 = D[I], D[Jn]
+    den = d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0]
+    ok &= np.abs(den) > 1e-9
+    den = np.where(ok, den, 1.0)
+    w = P[Jn] - P[I]
+    t = (w[:, 0] * d2[:, 1] - w[:, 1] * d2[:, 0]) / den
+    u = (w[:, 0] * d1[:, 1] - w[:, 1] * d1[:, 0]) / den
+    ti, uj = t * L[I], u * L[Jn]
+    ok &= (ti >= -eps) & (ti <= L[I] + eps) & (uj >= -eps) & (uj <= L[Jn] + eps)
+    I, Jn, t, ti, uj = I[ok], Jn[ok], t[ok], ti[ok], uj[ok]
+    X = P[I] + t[:, None] * D[I]
+    end_i = np.minimum(np.abs(ti), np.abs(L[I] - ti)) <= eps
+    end_j = np.minimum(np.abs(uj), np.abs(L[Jn] - uj)) <= eps
+    a_i = np.arctan2(D[I, 1], D[I, 0]); a_j = np.arctan2(D[Jn, 1], D[Jn, 0])
+    tp = 2 * math.pi
+    for k in range(len(I)):
+        dirs = []
+        if ti[k] > eps: dirs.append((a_i[k] + math.pi) % tp)
+        if ti[k] < L[I[k]] - eps: dirs.append(a_i[k] % tp)
+        if uj[k] > eps: dirs.append((a_j[k] + math.pi) % tp)
+        if uj[k] < L[Jn[k]] - eps: dirs.append(a_j[k] % tp)
+        kind = "L" if (end_i[k] and end_j[k]) else ("T" if (end_i[k] or end_j[k]) else "X")
+        out.append(Junction(X[k], kind, np.sort(np.array(dirs))))
     return out
 
 
