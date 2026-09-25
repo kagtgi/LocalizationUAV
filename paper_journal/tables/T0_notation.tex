@@ -1,0 +1,27 @@
+\begin{table}[t]
+\caption{Notation.}
+\label{tab:notation}
+\centering\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\mathcal{S}$, $g_S$ & satellite orthophoto and its GSD (m/px) \\
+$I$, $h$, $\psi$ & UAV image, altitude, IMU heading \\
+$g$, $g_{\mathrm{seg}}$ & working GSD of the search / GSD of segmentation \\
+$T=(s,\theta,\mathbf t)$ & similarity pose; $\hat{\mathbf p}=T(\mathbf 0)$ is the UAV position \\
+$P_I$, $P_S$ & building probability maps (query, map) \\
+$\mathcal{E}$ & structural ensemble (thresholds $\times$ metric DP tolerances) \\
+$\mathbf x_b$, $p_b$, $w_b$ & query boundary sample, its persistence, its weight \\
+$G_S$, $\tilde M_S$ & smoothed-chamfer kernel, signed mask of the map \\
+$\tilde M_I$, $V$ & signed query mask, camera footprint \\
+$J(T)$ & structural pose objective, Eq.~\eqref{eq:objective} \\
+$J_1, J_2$ & best score; best score $>50$\,m away (runner-up) \\
+$A(T)$ & Ekeland/MFCA building-shape agreement \\
+$\phi$ & vertex-coupled MFCA building signature \\
+$\hat\Sigma_{\mathbf p}$ & Laplace position covariance \\
+$c$, $\tau_c$ & integrity score, abstention threshold \\
+$R$ & prior search radius \\
+\bottomrule
+\end{tabular}
+\end{table}

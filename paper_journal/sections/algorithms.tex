@@ -1,0 +1,35 @@
+\begin{algorithm}[t]
+\caption{Offline map preparation}
+\label{alg:offline}
+\begin{algorithmic}[1]
+\Require orthophoto $\mathcal{S}$ (GSD $g_S$), segmenter $f_{\mathrm{seg}}$, working GSD $g$
+\State $P_S \gets f_{\mathrm{seg}}(\mathrm{resample}(\mathcal{S}, g_{\mathrm{seg}}))$ \Comment{sliding window, 500\,px tiles}
+\State $M_S \gets \mathrm{clean}(\mathbb{1}[P_S>0.5])$ at GSD $g$;\quad $\tilde M_S\gets 2M_S-1$
+\State $D_S \gets \mathrm{EDT}(\partial M_S)$;\quad $G_S \gets \exp(-D_S^2/2\sigma^2)$
+\State $\{\Pi_j\}\gets \mathrm{DP}_{1\,\mathrm{m}}(\mathrm{contours}(M_S))$;\quad $\phi_j\gets$ coupled-MFCA signature of $\Pi_j$
+\State build a $k$-d tree on building centroids
+\State \Return $G_S,\ \tilde M_S,\ \{(\Pi_j,\phi_j)\}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[t]
+\caption{Online StructReg query}
+\label{alg:online}
+\begin{algorithmic}[1]
+\Require UAV image $I$, altitude $h$, heading $\psi$, prior $\bar{\mathbf p}$, radius $R$
+\State $I' \gets$ rotate $I$ by $-\psi$, resample to $g_{\mathrm{seg}}$ with $g_I=kh$; footprint $V$
+\State $P_I \gets f_{\mathrm{seg}}(I')$;\quad structural ensemble $\mathcal{E}$;\quad persistence $p_b$ \eqref{eq:persistence}
+\State boundary samples $\{\mathbf{x}_b, w_b=p_bc_b\}$;\quad signed mask $\tilde M_I$ (0 outside $V$)
+\For{each $(\theta,s)\in\Theta\times\mathcal{S}$} \Comment{batched on GPU}
+  \State rasterize templates $\mathcal{T}^w_{\theta,s},\mathcal{T}^M_{\theta,s}$
+  \State $J_{\theta,s}(\mathbf{t})\gets \frac{\mathcal{T}^w\star G_S}{\sum w}+\alpha\frac{\mathcal{T}^M\star\tilde M_S}{\sum|\tilde M_I|}-\lambda\,\mathrm{prior}(\theta,s)$ via FFT
+  \State $J^\ast(\mathbf{t})\gets\max(J^\ast(\mathbf{t}),J_{\theta,s}(\mathbf{t}))$ \Comment{within the window}
+\EndFor
+\State top-$k$ peaks of $J^\ast$ (NMS 30\,m); runner-up $J_2$ (>50\,m away)
+\State re-rank peaks by $J+\gamma A(T)$ \Comment{Ekeland shape verification}
+\State $\hat{\mathbf q}\gets\arg\max J$ from the best peak (continuous)
+\State $\hat\Sigma_{\mathbf p}\gets$ Laplace approximation \eqref{eq:laplace}
+\State $c\gets\sigma(\boldsymbol\beta^\top\mathbf z)$;\quad \textbf{if} $c<\tau_c$ \textbf{return} abstain
+\State \Return $\hat{\mathbf p}=T(\mathbf 0)$, $\hat\Sigma_{\mathbf p}$, $c$
+\end{algorithmic}
+\end{algorithm}

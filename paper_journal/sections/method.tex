@@ -1,0 +1,246 @@
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Problem Formulation}
+\label{sec:problem}
+
+Let $\mathcal{S}$ be a geo-referenced, north-up orthophoto (satellite map) with
+ground sampling distance $g_S$ (m/px), and let $I$ be a single UAV image with
+an optional pose prior: altitude $h$, heading $\psi$, and a coarse position
+$\bar{\mathbf{p}}$ from inertial/visual odometry. We seek the UAV's map
+position $\hat{\mathbf{p}}\in\mathbb{R}^2$, a covariance $\hat\Sigma$ and an
+integrity score $c\in[0,1]$, or an abstention.
+
+We model the image--map relation on the ground plane by a similarity
+transform $T=(s,\theta,\mathbf{t})\in\mathrm{Sim}(2)$,
+\begin{equation}
+  T(\mathbf{x}) = \frac{s}{g}\,R_\theta\,\mathbf{x} + \mathbf{t},
+  \label{eq:sim2}
+\end{equation}
+mapping a metric point $\mathbf{x}$ of the north-up, metric-canonicalized
+query (origin at the image centre) to a map pixel at working resolution $g$.
+The UAV position is $\hat{\mathbf{p}}=T(\mathbf{0})=\mathbf{t}$. The
+residual scale $s$ absorbs altitude/intrinsic errors and the residual rotation
+$\theta$ absorbs heading error; both have priors (Sec.~\ref{sec:objective}).
+The planar model is exact for nadir views of flat terrain and degrades
+gracefully with tilt and relief---a validity envelope we measure rather than
+assume (Sec.~\ref{sec:exp_anyvisloc}).
+
+Table~\ref{tab:notation} summarizes the notation.
+
+\input{tables/T0_notation}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Method: Structural Pose Optimization}
+\label{sec:method}
+
+Figure~\ref{fig:overview} gives the overview. The method has an offline map
+stage (Algorithm~\ref{alg:offline}) and an online query stage
+(Algorithm~\ref{alg:online}). The key departure from the conference version
+(M0) and from descriptor-retrieval methods in general is that \emph{no
+individual structural element is ever retrieved}: the entire observed building
+configuration is registered to the map at once, by maximizing one objective
+over the pose group.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figs/fig1_overview}
+  \caption{\textbf{StructReg overview.} Offline, the satellite map is converted
+  once into building structure (probability, boundary kernel $G_S$, signed mask
+  $\tilde M_S$, polygons with vertex-coupled MFCA signatures). Online, the UAV
+  image is canonicalized to a metric north-up frame, converted into a
+  \emph{structural ensemble} whose agreement yields per-point persistence
+  weights, and registered by exhaustive FFT search of $J(T)$ over
+  $\mathrm{Sim}(2)$, Ekeland shape verification of the top peaks, continuous
+  refinement, and a Laplace approximation. The output is a continuous position,
+  its covariance, and a calibrated integrity score.}
+  \label{fig:overview}
+\end{figure*}
+
+\subsection{Metric canonicalization}
+\label{sec:canon}
+
+The query is (i) rotated north-up by the IMU heading $\psi$, (ii) resampled to
+the segmentation resolution $g_{\mathrm{seg}}=0.3$\,m/px using
+$g_I = k\,h$, the ground sampling distance implied by altitude $h$, and (iii)
+associated with a footprint mask $V$ (pixels observed by the camera). When
+intrinsics are available (World-UAV, AnyVisLoc) $k=2\tan(\mathrm{FOV}_v/2)/H_{\mathrm{px}}$;
+for UAV-VisLoc, whose metadata lack intrinsics, $k$ is estimated once on a
+calibration site (Sec.~\ref{sec:setup}) and frozen. Residual heading and scale
+errors are left to the optimizer.
+
+\subsection{Structural ensemble and persistence}
+\label{sec:ensemble}
+
+A frozen building segmenter (Mask R-CNN, identical for query and map) produces
+a probability map $P_I$. Rather than committing to one hard mask we form a
+\emph{structural ensemble}
+\begin{equation}
+  \mathcal{E}=\bigl\{\,\mathrm{DP}_{\tau}\!\bigl(\mathbb{1}[P_I>\eta]\bigr)
+  \;:\;\eta\in\{0.3,\dots,0.7\},\ \tau\in\{0.5,1,2\}\,\mathrm{m}\bigr\},
+\end{equation}
+i.e.\ masks at several confidence levels, each re-rasterized after
+Douglas--Peucker simplification at a \emph{metric} tolerance. Let
+$\partial E$ be the boundary of member $E$ and $B$ the nominal boundary
+($\eta=0.5$). For every boundary sample $\mathbf{x}_b\in B$ the
+\emph{persistence}
+\begin{equation}
+  p_b = \frac{1}{|\mathcal{E}|}\sum_{E\in\mathcal{E}}
+        \mathbb{1}\bigl[\,d(\mathbf{x}_b,\partial E)\le r\,\bigr],
+  \qquad r=1.5\,\mathrm{m},
+  \label{eq:persistence}
+\end{equation}
+measures whether that piece of structure survives plausible segmentation
+and simplification changes. The weight of a boundary point is
+$w_b=p_b\,c_b$ with $c_b\in[0.5,1]$ a local confidence
+($|P_I-0.5|$ smoothed). This is the raster form of the persistence
+principle: evidence that is not stable under the upstream uncertainty is
+down-weighted \emph{before} it can create a discrete topological change
+downstream (the failure mode of per-element descriptors,
+Sec.~\ref{sec:why_m0}).
+
+\subsection{Reference maps}
+\label{sec:refmaps}
+
+On the map side we store, at working resolution $g$, the
+\emph{smoothed-chamfer kernel}
+\begin{equation}
+  G_S(\mathbf{u}) = \exp\!\Bigl(-\tfrac{D_S(\mathbf{u})^2}{2\sigma^2}\Bigr),
+  \qquad \sigma=2\,\mathrm{m},
+\end{equation}
+where $D_S$ is the Euclidean distance transform of the satellite building
+boundary, and the \emph{signed mask} $\tilde M_S=2M_S-1\in\{-1,1\}$.
+The query analogue $\tilde M_I$ is set to $0$ outside the footprint $V$, so
+unobserved ground contributes nothing.
+
+\subsection{Objective}
+\label{sec:objective}
+
+The pose score is
+\begin{equation}
+\boxed{\;
+  J(T)=\underbrace{\frac{\sum_b w_b\,G_S\bigl(T\mathbf{x}_b\bigr)}{\sum_b w_b}}_{\text{edge (smoothed chamfer)}}
+  +\alpha\,\underbrace{\frac{\sum_{\mathbf{x}}\tilde M_I(\mathbf{x})\,\tilde M_S\bigl(T\mathbf{x}\bigr)}{\sum_{\mathbf{x}}|\tilde M_I(\mathbf{x})|}}_{\text{signed-mask overlap}}
+  -\lambda\Bigl[\tfrac{(\theta-\theta_0)^2}{2\sigma_\theta^2}+\tfrac{(\log s-\log s_0)^2}{2\sigma_s^2}\Bigr]
+\;}
+\label{eq:objective}
+\end{equation}
+The edge term rewards boundaries landing on boundaries, with a smooth
+tolerance $\sigma$; it is a robust (bounded) chamfer score, so missing or
+spurious buildings cost at most their own weight. The mask term rewards
+building-on-building and ground-on-ground agreement over the whole footprint
+and supplies the ``negative'' evidence the edge term lacks. The priors encode
+heading and altitude uncertainty. All quantities are geometric: RGB
+appearance enters only through the segmenter.
+
+\paragraph{Why this escapes the per-element ceiling.} A single triangle or
+building carries a few bits of shape information and is repeated thousands of
+times in a city (Sec.~\ref{sec:why_m0}); J instead scores the \emph{joint}
+configuration of all observed structure, whose information grows with the
+number and spread of buildings in the footprint. This is precisely the
+inter-building configuration that per-element retrieval discards.
+
+\subsection{Exhaustive search by FFT}
+\label{sec:fft}
+
+\begin{proposition}[Exact translation search]
+\label{prop:fft}
+For fixed $(\theta,s)$ both data terms of \eqref{eq:objective} are
+cross-correlations over $\mathbf{t}$:
+$E_{\theta,s}(\mathbf{t})=(\mathcal{T}^{w}_{\theta,s}\star G_S)(\mathbf{t})$ and
+$O_{\theta,s}(\mathbf{t})=(\mathcal{T}^{M}_{\theta,s}\star\tilde M_S)(\mathbf{t})$,
+where $\mathcal{T}^{w}_{\theta,s}$ is the weighted boundary point set and
+$\mathcal{T}^{M}_{\theta,s}$ the signed query mask, both rasterized after
+rotation by $\theta$ and scaling by $s$. Hence $J$ is evaluated at
+\emph{every} integer translation of the search window with
+$O(N\log N)$ operations per $(\theta,s)$, $N$ the window size.
+\end{proposition}
+
+The search enumerates a grid $\Theta\times\mathcal{S}$ (IMU prior:
+$\theta\in[-10^\circ,10^\circ]$ step $2.5^\circ$, $s\in\{0.9,\dots,1.1\}$;
+no heading prior: $\theta\in[0,360^\circ)$ step $5^\circ$), batches the
+templates on the GPU, and keeps the running maximum over $(\theta,s)$ for each
+$\mathbf{t}$. The top-$k$ peaks after non-maximum suppression (30\,m) are
+passed on; the best score more than 50\,m from the top peak defines the
+\emph{runner-up} $J_2$. The grid optimum is exact for the discretized problem;
+Proposition~\ref{prop:grid} (Appendix~\ref{app:proofs}) bounds the
+sub-optimality of the discretization in $(\theta,s)$ by a Lipschitz argument,
+which the continuous refinement then removes.
+
+Three operating modes differ only in the window: \emph{prior mode}
+(a disk of radius $R$ around $\bar{\mathbf{p}}$, our main setting),
+\emph{global mode} (the whole map, tiled into overlapping FFT blocks), and
+\emph{coarse-to-fine mode} (windows around the top cells of the area-level
+Ekeland histogram retrieval of the conference paper).
+
+\subsection{Ekeland shape verification}
+\label{sec:verify}
+
+Correlation scores can alias on regular layouts (grids of identical houses),
+where many poses align \emph{boundaries} equally well but pair buildings of
+different \emph{shape}. For each peak we therefore pair every query building
+with the nearest satellite building under $T$ (within 8\,m and a factor 2.5 in
+area) and score shape agreement
+\begin{equation}
+  A(T)=\frac{1}{|\mathcal{B}_I|}\sum_{i\in\mathcal{B}_I}
+    \exp\!\Bigl(-\tfrac{\|\phi_i-\phi_{j(i)}\|_1}{\sigma_f}\Bigr)\,
+    \mathbb{1}[\text{paired}],
+\end{equation}
+where $\phi$ is a rotation- and scale-invariant building signature built from
+\emph{vertex-coupled} MFCA triangle descriptors: the CDT triangles of each
+footprint are described by $(\alpha_{\pi_1},\alpha_{\pi_2},e_{\pi_1},e_{\pi_2},e_{\pi_3})$
+with one deterministic vertex order $\pi$ (interior angle, tie-broken by the
+adjacent-edge ratio), so each vertex keeps its angle$\leftrightarrow$free-cone
+pairing, which the independent sorting of M0 destroyed. Peaks are re-ranked by
+$J+\gamma A$.
+
+\subsection{Continuous refinement and Laplace covariance}
+\label{sec:refine}
+
+From the selected peak we maximize $J$ over the continuous parameters
+$\mathbf{q}=(t_u,t_v,\theta,\log s)$ with bilinear sampling of $G_S$ and a
+lightly smoothed $\tilde M_S$ (Adam, 150 steps), which removes the grid
+quantization of Proposition~\ref{prop:fft}. Treating
+$\exp(N J/\tau)$ as an unnormalized likelihood ($N$ boundary samples,
+temperature $\tau$), the Laplace approximation gives
+\begin{equation}
+  \hat\Sigma_{\mathbf{q}}=\Bigl(-\tfrac{N}{\tau}\,\nabla^2_{\mathbf{q}}J(\hat{\mathbf{q}})\Bigr)^{-1},
+  \qquad \hat\Sigma_{\mathbf{p}}=g^2\,[\hat\Sigma_{\mathbf{q}}]_{1:2,1:2},
+  \label{eq:laplace}
+\end{equation}
+with the Hessian computed by central differences on the kernel scale
+(bilinear interpolation has vanishing second derivatives, so automatic
+differentiation cannot be used). A flat optimum---few buildings, collinear
+layouts, blurred boundaries---yields a large $\hat\Sigma_{\mathbf{p}}$.
+
+\subsection{Structural integrity and abstention}
+\label{sec:integrity}
+
+Two different things can go wrong: the optimum can be \emph{imprecise}
+(flat $J$, captured by $\hat\Sigma_{\mathbf{p}}$) or \emph{ambiguous}
+(another, distant pose scores nearly as well). We summarize the structural
+evidence by
+\begin{equation}
+  \mathbf{z}=\bigl(J_1-J_2,\;J_1,\;\log\sqrt{\mathrm{tr}\,\hat\Sigma_{\mathbf{p}}},\;
+  \log(1+n_B),\;\rho_B,\;\bar p,\;A\bigr),
+\end{equation}
+with $n_B$ the number of query buildings, $\rho_B$ their spatial spread
+relative to the footprint and $\bar p$ the mean persistence. None of these
+uses ground truth. A logistic model
+$c=\sigma(\boldsymbol\beta^\top\mathbf{z})$ is fitted to predict
+$\mathbb{1}[\|\hat{\mathbf{p}}-\mathbf{p}^\ast\|\le T]$; to avoid tuning on
+test scenes we fit it leave-one-site-out. The system abstains when
+$c<\tau_c$. The claim is \emph{structural} integrity: confidence is derived
+from the observability and uniqueness of the geometric evidence, not from a
+learned softmax.
+
+\subsection{Complexity}
+\label{sec:complexity}
+
+Offline cost is one segmentation pass over the map plus distance transforms
+(linear in map area). Online cost is one segmentation of the query, plus
+$|\Theta||\mathcal{S}|$ FFT correlations of the window
+($O(|\Theta||\mathcal{S}|N\log N)$), plus a constant-size refinement. Unlike
+descriptor retrieval, runtime does not depend on how many similar buildings
+exist, and memory is two rasters per map. Measured latencies are reported in
+Sec.~\ref{sec:efficiency}.
+
+\input{algorithms}
