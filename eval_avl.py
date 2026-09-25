@@ -43,10 +43,8 @@ def load_model(path, device):
 
 
 def soft_mask(img, model, device, batch=12):
-    from localization.segmentation.inference import segment_image_patchwise
-    with torch.no_grad():
-        return segment_image_patchwise(img, model, device, patch_size=500, overlap=100,
-                                       score_threshold=0.5, batch_size=batch, progress=False)
+    from localization.registration.seg import soft_mask as sm
+    return sm(img, model, device, batch=batch)
 
 
 def off_nadir_deg(c2w):

@@ -82,10 +82,8 @@ def load_model(args, device):
 
 
 def soft_mask(img_rgb: Image.Image, model, device, batch=12):
-    from localization.segmentation.inference import segment_image_patchwise
-    with torch.no_grad():
-        return segment_image_patchwise(img_rgb, model, device, patch_size=500, overlap=100,
-                                       score_threshold=0.5, batch_size=batch, progress=False)
+    from localization.registration.seg import soft_mask as sm
+    return sm(img_rgb, model, device, batch=batch)
 
 
 # ----------------------------------------------------------------------------
