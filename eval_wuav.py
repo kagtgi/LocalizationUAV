@@ -158,6 +158,8 @@ def main():
                 res = search(q, ref, center_uv=(gu, gv), radius_m=args.oracle_window, cfg=cfg)
             else:
                 res = search(q, ref, center_uv=None, radius_m=None, cfg=cfg)
+            if not res.peaks:
+                rec.update(status="no_peak", err_m=np.nan, r1=0, r1_semi=0); rows.append(rec); continue
             pk = res.peaks[0]
             rr = refine(q, ref, pk, cfg)
             t_opt = time.time() - t1
