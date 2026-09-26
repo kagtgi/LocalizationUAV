@@ -193,6 +193,35 @@ def load_ref(args, site):
 # ----------------------------------------------------------------------------
 
 
+def prior_uv(args, site, fname, gu, gv, radius=None):
+    """INS/VO prior centre (working-GSD pixels): GT + offset uniform in a disk of
+    radius R*prior_frac. Stable per-query seed, so every stage and every method
+    sees the same prior. Returns (cu, cv, rng) -- rng continues for baselines."""
+    R = args.radius if radius is None else radius
+    rng = np.random.default_rng(zlib.crc32(f"{args.seed}|{site}|{fname}".encode()))
+    r = R * args.prior_frac * math.sqrt(rng.uniform()); a = rng.uniform(0, 2 * math.pi)
+    return gu + r * math.cos(a) / args.gsd, gv + r * math.sin(a) / args.gsd, rng
+
+
+def _agl_column(args, site, df):
+    """Height above ground = metadata height (above sea level) - DEM median in the
+    prior window. Uses the prior centre only, never the ground-truth position."""
+    if args.agl != "dem":
+        return df["height"].astype(float)
+    from localization.io.dem import DEM
+    from localization.io.bounds import pixel_to_latlon
+    dem = DEM(Path(args.cache).parent / "dem")
+    g = site_geo(Path(args.root), site)
+    R = args.radius if args.radius > 0 else 1000.0
+    out = []
+    for _, row in df.iterrows():
+        gx, gy = latlon_to_px_f(float(row["lat"]), float(row["lon"]), g)
+        cu, cv, _ = prior_uv(args, site, row["filename"], gx * g["gsd"] / args.gsd, gy * g["gsd"] / args.gsd, R)
+        plat, plon = pixel_to_latlon(cu * args.gsd / g["gsd"], cv * args.gsd / g["gsd"], g["bounds"], g["W"], g["H"])
+        out.append(float(row["height"]) - dem.window_median(plat, plon, R))
+    return pd.Series(out, index=df.index)
+
+
 def select_queries(args, site):
     fl = VisLocFlight(site, Path(args.root))
     df = load_flight_metadata(fl.metadata_csv)
@@ -200,13 +229,15 @@ def select_queries(args, site):
     if args.n and len(df) > args.n:
         idx = np.linspace(0, len(df) - 1, args.n).round().astype(int)
         df = df.iloc[np.unique(idx)].reset_index(drop=True)
+    df["height_agl"] = _agl_column(args, site, df)
     return fl, df
 
 
 def uav_canonical(args, fl, row, k, yaw_noise=0.0):
-    """North-up UAV image resampled to SEG_GSD (GSD = k * height) + footprint mask."""
+    """North-up UAV image resampled to SEG_GSD (GSD = k * height above ground) + footprint mask."""
     img = Image.open(fl.drone_image_path(row["filename"])).convert("RGB")
-    f = k * float(row["height"]) / SEG_GSD
+    # GSD = c * AGL / W_px with c = 2 tan(HFOV/2) (camera field-of-view constant; sites use different cameras)
+    f = k * float(row.get("height_agl", row["height"])) / img.width / SEG_GSD
     img = img.resize((max(1, int(img.width * f)), max(1, int(img.height * f))), Image.BILINEAR)
     valid = Image.new("L", img.size, 255)
     yaw = float(row["Phi1"]) + yaw_noise
@@ -228,8 +259,8 @@ def uav_lines(args, fl, row, k, persistence=True):
 def uav_prob(args, fl, row, k, model, device, yaw_noise=0.0):
     """North-up UAV building probability at SEG_GSD, plus footprint mask."""
     img = Image.open(fl.drone_image_path(row["filename"])).convert("RGB")
-    h = float(row["height"])
-    gsd_raw = k * h
+    h = float(row.get("height_agl", row["height"]))
+    gsd_raw = k * h / Image.open(fl.drone_image_path(row["filename"])).width
     f = gsd_raw / SEG_GSD
     img = img.resize((max(1, int(img.width * f)), max(1, int(img.height * f))), Image.BILINEAR)
     valid = Image.new("L", img.size, 255)
@@ -381,9 +412,6 @@ def stage_run(args):
         fl, df = select_queries(args, site)
         rows = []
         for qi, row in df.iterrows():
-            # stable per-query seed (Python hash() is salted per process): every mode
-            # sees the SAME prior offset for a query, so comparisons are paired
-            rng = np.random.default_rng(zlib.crc32(f"{args.seed}|{site}|{row['filename']}".encode()))
             if (site, row["filename"]) in done:
                 continue
             fq = cache_dir(args, "uav", site) / (Path(row["filename"]).stem + ".npz")
@@ -394,6 +422,8 @@ def stage_run(args):
             t_q = time.time() - t0
             gx, gy = latlon_to_px_f(float(row["lat"]), float(row["lon"]), g)
             gu, gv = gx * g["gsd"] / args.gsd, gy * g["gsd"] / args.gsd
+            # stable per-query prior (same generator as caching/DEM lookup): paired across modes
+            pcu, pcv, rng = prior_uv(args, site, row["filename"], gu, gv)
             q_uav_nb = q.n_buildings
             if args.oracle:
                 q = oracle_query(q, sat_pw, gu, gv, args)
@@ -402,13 +432,12 @@ def stage_run(args):
                 cu, cv = gu, gv
             elif args.radius > 0:
                 # prior: GT + offset uniform in a disk of radius radius*prior_frac (INS/VO drift model)
-                r = args.radius * args.prior_frac * math.sqrt(rng.uniform()); a = rng.uniform(0, 2 * math.pi)
-                cu, cv = gu + r * math.cos(a) / args.gsd, gv + r * math.sin(a) / args.gsd
+                cu, cv = pcu, pcv
                 center, rad = (cu, cv), args.radius
             else:
                 center, rad = None, None
                 cu, cv = ref.G.shape[1] / 2, ref.G.shape[0] / 2
-            rec = dict(site=site, file=row["filename"], height=float(row["height"]), yaw=float(row["Phi1"]),
+            rec = dict(site=site, file=row["filename"], height=float(row["height"]), height_agl=float(row["height_agl"]), yaw=float(row["Phi1"]),
                        n_buildings=q.n_buildings, n_pts=len(q.pts), persistence=q.mean_persistence, coverage=q.coverage,
                        gt_u=gu, gt_v=gv, prior_u=cu, prior_v=cv, radius=args.radius,
                        prior_err_m=math.hypot(cu - gu, cv - gv) * args.gsd, uav_n_buildings=q_uav_nb,
@@ -507,13 +536,14 @@ def main():
     ap.add_argument("--sigma-m", type=float, default=2.0)
     ap.add_argument("--batch", type=int, default=12)
     ap.add_argument("--workers", type=int, default=3)
-    ap.add_argument("--k0", type=float, default=3.3e-4)
+    ap.add_argument("--k0", type=float, default=1.8, help="initial FOV constant c = 2 tan(HFOV/2) (84 deg -> 1.80)")
     ap.add_argument("--k", type=float, default=None)
     ap.add_argument("--radius", type=float, default=1000.0, help="prior window radius (m); <=0 = global")
     ap.add_argument("--prior-frac", type=float, default=0.5)
+    ap.add_argument("--agl", default="dem", choices=["dem", "raw"], help="height above ground from a public DEM at the prior window")
     ap.add_argument("--theta-range", type=float, default=10.0)
     ap.add_argument("--theta-step", type=float, default=2.5)
-    ap.add_argument("--scales", type=float, nargs="+", default=[0.9, 0.95, 1.0, 1.05, 1.1])
+    ap.add_argument("--scales", type=float, nargs="+", default=[0.8, 0.87, 0.93, 1.0, 1.07, 1.15, 1.25])
     ap.add_argument("--alpha", type=float, default=0.5)
     ap.add_argument("--gamma", type=float, default=0.2)
     ap.add_argument("--topk", type=int, default=5)
