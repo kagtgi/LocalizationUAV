@@ -49,6 +49,7 @@ class SearchConfig:
     use_mask: bool = True
     oriented: bool = True              # use orientation channels when both sides provide them
     ncc: bool = True                   # footprint-normalized (masked) cross-correlation
+    zscore: bool = True                # standardize each (theta, s) score map (removes template-size bias)
     topk: int = 5
     nms_m: float = 30.0
     second_peak_excl_m: float = 50.0
@@ -239,7 +240,16 @@ def search(q: QueryStructure, ref: RefMaps, center_uv: Optional[tuple] = None,
                 for j, i in enumerate(idx):
                     ox, oy = tpl[j][3]
                     su = int(round(tu - ox)) - ru0; sv = int(round(tv - oy)) - rv0
-                    slc = tot[j, sv:sv + nv, su:su + nu] + float(pri[i])
+                    slc = tot[j, sv:sv + nv, su:su + nu]
+                    if cfg.zscore:
+                        # CFAR-style standardization per (theta, s): smaller templates give
+                        # noisier NCC with higher chance maxima; standardizing each score
+                        # map by its own mean/std over the window makes scales comparable.
+                        ok = slc > -100
+                        if ok.sum() > 16:
+                            mu = slc[ok].mean(); sd = slc[ok].std().clamp_min(1e-6)
+                            slc = torch.where(ok, (slc - mu) / sd, slc)
+                    slc = slc + float(pri[i]) * (100.0 if cfg.zscore else 1.0)
                     h_, w_ = slc.shape
                     upd = slc > smax[:h_, :w_]
                     smax[:h_, :w_] = torch.where(upd, slc, smax[:h_, :w_])

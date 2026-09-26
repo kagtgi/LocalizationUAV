@@ -337,14 +337,18 @@ def stage_calib(args):
             cfg = SearchConfig(thetas_deg=tuple(np.arange(-6, 6.1, 3.0)),
                                scales=tuple(np.exp(np.linspace(math.log(0.25), math.log(2.0), 31))),
                                sigma_logs=10.0, use_mask=args.frontend != "lines", device="cuda")
-            res = search(q, ref, center_uv=c, radius_m=60.0, cfg=cfg)
+            res = search(q, ref, center_uv=c, radius_m=300.0, cfg=cfg)
             if res.peaks:
                 pk = res.peaks[0]
-                ests.append(dict(site=site, file=row["filename"], s=pk.s, score=pk.score,
+                err = math.hypot(pk.u - c[0], pk.v - c[1]) * args.gsd
+                ests.append(dict(site=site, file=row["filename"], s=pk.s, score=pk.score, err_m=err,
                                  ratio=pk.score - res.second_score, nb=q.n_buildings))
-                print(site, row["filename"], f"s={pk.s:.3f} score={pk.score:.3f}", flush=True)
+                print(site, row["filename"], f"s={pk.s:.3f} score={pk.score:.3f} err={err:.0f}m", flush=True)
     E = pd.DataFrame(ests)
-    good = E[E["ratio"] > E["ratio"].median()] if len(E) > 10 else E
+    # only frames the registration actually localized (peak within 25 m of GT) -- valid on a calibration site
+    good = E[E["err_m"] <= 25.0]
+    if len(good) < 3:
+        good = E[E["ratio"] > E["ratio"].median()] if len(E) > 10 else E
     s_med = float(np.median(good["s"]))
     k = k0 * s_med
     json.dump({"k": k, "k0": k0, "s_median": s_med, "n": int(len(good)), "sites": args.calib_sites},
