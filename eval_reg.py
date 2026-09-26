@@ -335,7 +335,7 @@ def stage_calib(args):
             gx, gy = latlon_to_px_f(float(row["lat"]), float(row["lon"]), g)
             c = (gx * g["gsd"] / args.gsd, gy * g["gsd"] / args.gsd)
             cfg = SearchConfig(thetas_deg=tuple(np.arange(-6, 6.1, 3.0)),
-                               scales=tuple(np.exp(np.linspace(math.log(0.5), math.log(2.0), 25))),
+                               scales=tuple(np.exp(np.linspace(math.log(0.25), math.log(2.0), 31))),
                                sigma_logs=10.0, use_mask=args.frontend != "lines", device="cuda")
             res = search(q, ref, center_uv=c, radius_m=60.0, cfg=cfg)
             if res.peaks:
