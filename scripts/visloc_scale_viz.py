@@ -15,6 +15,7 @@ g = E.site_geo(root, site)
 sat = Image.open(root / site / f"satellite{site}.tif")
 fl = E.VisLocFlight(site, root)
 df = E.load_flight_metadata(fl.metadata_csv)
+df = df[df["filename"].str.lower().str.endswith((".jpg", ".jpeg", ".png"))].reset_index(drop=True)
 dem = DEM("../data/dem")
 out = Path("debug"); out.mkdir(exist_ok=True)
 for i in np.linspace(0, len(df) - 1, n).round().astype(int):
