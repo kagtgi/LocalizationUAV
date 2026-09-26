@@ -10,9 +10,9 @@ ROOT=$(dirname "$(find ../data/visloc_raw -maxdepth 4 -type d -name 01 -not -pat
 ARGS="--root $ROOT --cache cache/visloc_lines --gsd 0.6 --frontend lines"
 R=results/reg
 mkdir -p cache/visloc_lines $R
-$PY -u eval_reg.py satcache $ARGS --sites 05 01 11
+$PY -u eval_reg.py satcache $ARGS --sites 02 01 11
 $PY -u eval_reg.py satgraph $ARGS --sites 01 11
-[ -f cache/visloc_lines/calib.json ] || $PY -u eval_reg.py calib $ARGS --calib-sites 05 --calib-n 30
+[ -f cache/visloc_lines/calib.json ] || $PY -u eval_reg.py calib $ARGS --calib-sites 02 --calib-n 30
 cat cache/visloc_lines/calib.json
 $PY -u eval_reg.py uavcache $ARGS --sites 01 11 --n 100
 # (1) sanity: does the objective peak at the right place at all? (50 m around GT)

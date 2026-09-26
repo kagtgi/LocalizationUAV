@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # G0 go/no-go gate (locked protocol): UAV-VisLoc sites 01 + 11, 100 queries/site,
-# 1 km prior window. Calibration of the altitude->GSD factor on site 05 only.
+# 1 km prior window. Calibration of the camera FOV constant on site 02 only (same camera as 01/11, not a G0 site).
 set -euo pipefail
 cd /workspace/KhangTa/LocalizationUAV
 PY=../venv/bin/python
